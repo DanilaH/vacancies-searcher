@@ -1,0 +1,22 @@
+services:
+  vacancy-bot:
+    build: .
+    container_name: vacancy-bot
+    restart: unless-stopped
+    init: true
+    read_only: true
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

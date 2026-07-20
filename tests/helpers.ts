@@ -1,0 +1,77 @@
+import os from "node:os";
+import path from "node:path";
+
+import { AppConfig } from "../src/config";
+
+export function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  const databasePath = overrides.databasePath ?? path.join(os.tmpdir(), `job-tg-bot-test-${Date.now()}.db`);
+  const appDataDir = overrides.appDataDir ?? path.dirname(databasePath);
+  const runtimeDir = overrides.runtimeDir ?? path.join(appDataDir, "runtime");
+
+  return {
+    nodeEnv: "test",
+    logLevel: "silent",
+    timeZone: "UTC",
+    botToken: "test-token",
+    ownerChatId: "123456",
+    ownerUserId: "123456",
+    telegramSourceMode: "web",
+    telegramApiId: undefined,
+    telegramApiHash: undefined,
+    telegramSession: undefined,
+    posthogApiKey: undefined,
+    posthogHost: undefined,
+    hhSourceEnabled: false,
+    hhUserAgent: undefined,
+    hhAccessToken: undefined,
+    hhMaxUniqueQueriesPerCycle: 10,
+    hhMaxActiveUsersPerCycle: 10,
+    hhPerPage: 20,
+    hhMaxPagesPerQuery: 1,
+    companyCareersSourceEnabled: false,
+    companyCareersPollIntervalSeconds: 21_600,
+    companyCareersMaxSourcesPerCycle: 20,
+    companyCareersRequestTimeoutMs: 5_000,
+    companyCareersMaxResponseBytes: 1_000_000,
+    companyCareersRequestDelayMs: 0,
+    companyCareersUserAgent: "job-tg-bot-test/company-careers",
+    databaseUrl: `file:${databasePath}`,
+    databasePath,
+    appDataDir,
+    runtimeDir,
+    heartbeatPath: path.join(runtimeDir, "heartbeat.json"),
+    channels: ["job_react", "rabotafrontend", "findmyremote_frontend"],
+    checkIntervalSeconds: 300,
+    initialBackfillDays: 7,
+    weeklyPageSize: 3,
+    heartbeatIntervalSeconds: 15,
+    webPreviewMaxPagesPerChannel: 5,
+    webPreviewChannelDelayMs: 250,
+    webPreviewRetryCount: 0,
+    webPreviewRequestTimeoutMs: 5_000,
+    webPreviewMaxResponseBytes: 1_000_000,
+    webPreviewMaxItemsPerChannel: 200,
+    channelDiscoveryMaxQueries: 10,
+    channelDiscoveryQueryLimit: 20,
+    channelDiscoveryMaxCandidates: 50,
+    channelDiscoverySamplePosts: 30,
+    channelDiscoveryRecentRawDays: 30,
+    channelDiscoveryRequestDelayMs: 0,
+    channelDiscoveryDuckDuckGoEnabled: false,
+    channelDiscoveryDuckDuckGoTimeoutMs: 5_000,
+    channelDiscoveryDuckDuckGoMaxResponseBytes: 500_000,
+    technicalCleanupEnabled: true,
+    automaticBackupEnabled: true,
+    automaticBackupIntervalHours: 24,
+    automaticBackupRetentionDays: 14,
+    analyticsRetentionDays: 90,
+    channelDiscoveryRunRetentionDays: 30,
+    channelDiscoveryCheckRetentionDays: 180,
+    remoteKeywords: ["remote", "удаленно", "удалённо"],
+    reactKeywords: ["react", "react.js"],
+    typescriptKeywords: ["typescript", "next.js"],
+    seniorityKeywords: ["middle", "middle+", "senior"],
+    excludeKeywords: ["junior", "intern", "vue", "angular"],
+    ...overrides
+  };
+}
