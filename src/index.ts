@@ -18,6 +18,7 @@ import { VacancyFilter } from "./services/vacancyFilter";
 import { VacancyReminderScheduler } from "./services/vacancyReminderScheduler";
 import { ApplicationFollowUpScheduler } from "./services/applicationFollowUpScheduler";
 import { DailyDigestScheduler } from "./services/dailyDigestScheduler";
+import { WeeklyOwnerReportScheduler } from "./services/weeklyOwnerReportScheduler";
 import { createVacancySources } from "./sources";
 
 const TECHNICAL_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -79,6 +80,11 @@ async function main(): Promise<void> {
   const applicationFollowUpScheduler = new ApplicationFollowUpScheduler(
     database,
     (followUp) => bot.sendApplicationFollowUp ? bot.sendApplicationFollowUp(followUp) : Promise.resolve(false)
+  );
+  const ownerReportScheduler = new WeeklyOwnerReportScheduler(
+    database,
+    config,
+    (text) => bot.sendAdminAlert(text)
   );
   const dailyDigestScheduler = new DailyDigestScheduler(
     database,
@@ -208,6 +214,7 @@ async function main(): Promise<void> {
     await reminderScheduler.stop();
     await applicationFollowUpScheduler.stop();
     await dailyDigestScheduler.stop();
+    await ownerReportScheduler.stop();
     if (technicalCleanupTimer) {
       clearInterval(technicalCleanupTimer);
     }
@@ -234,6 +241,7 @@ async function main(): Promise<void> {
     await reminderScheduler.start();
     await applicationFollowUpScheduler.start();
     await dailyDigestScheduler.start();
+    await ownerReportScheduler.start();
     heartbeat.start();
 
     const stats = database.getStats();
