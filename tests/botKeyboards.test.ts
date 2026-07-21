@@ -160,15 +160,25 @@ function createSearchProfile(overrides: Partial<UserSearchProfileRecord> = {}): 
   };
 }
 
-test("main keyboard exposes applications as a primary workflow", () => {
+test("main keyboard no longer has duplicate applications entry", () => {
   const data = callbacks(createMainKeyboard(false, true, true));
 
   assert.ok(data.includes("week:0"));
-  assert.ok(data.includes("status:applied:0"));
+  assert.ok(!data.includes("status:applied:0"), "applications accessible only via Мои вакансии");
   assert.ok(data.includes("menu:vacancies"));
   assert.ok(data.includes("menu:filters"));
   assert.ok(data.includes("menu:settings"));
   assert.ok(!data.includes("status:hidden:0"));
+});
+
+test("my vacancies keyboard keeps applications entry", () => {
+  const data = callbacks(createMyVacanciesKeyboard());
+
+  assert.ok(data.includes("status:applied:0"));
+  assert.ok(data.includes("status:saved:0"));
+  assert.ok(data.includes("status:hidden:0"));
+  assert.ok(data.includes("reminders:page:0"));
+  assert.ok(data.includes("menu:home"));
 });
 
 test("vacancy action keyboard keeps only vacancy-scoped actions", () => {
