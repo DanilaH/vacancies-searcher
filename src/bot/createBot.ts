@@ -36,6 +36,7 @@ import { ActionCooldown } from "../services/actionCooldown";
 import { handleChannelReportCommand } from "./channelReportHandler";
 import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
+import { handleQualityAuditCommand, handleAuditVerdictCallback } from "./qualityAuditHandler";
 import { processRelevanceFeedback } from "./relevanceFeedbackHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
@@ -123,7 +124,8 @@ const OWNER_BOT_COMMANDS = [
     { command: "report", description: "Аналитика за 7 дней" },
     { command: "channelreport", description: "Производительность источников" },
     { command: "retention", description: "Ретенция пользователей" },
-    { command: "qualityreport", description: "Качество матчинга за 30 дней" }
+    { command: "qualityreport", description: "Качество матчинга за 30 дней" },
+    { command: "qualityaudit", description: "Аудит отклонённых вакансий" }
 ];
 
 export async function dismissHiddenVacancyCardMessage(
@@ -1319,6 +1321,12 @@ export function createBotController(
     });
     bot.command("qualityreport", async (ctx) => {
         await handleQualityReportCommand(ctx, database);
+    });
+    bot.command("qualityaudit", async (ctx) => {
+        await handleQualityAuditCommand(ctx, database, config);
+    });
+    bot.callbackQuery(/^qualityaudit:verdict:(\d+):(missed_relevant|correct_rejection)$/, async (ctx) => {
+        await handleAuditVerdictCallback(ctx, database, config);
     });
     bot.callbackQuery(/^report:period:(\d+)$/, async (ctx) => {
         if (!(await ensureOwnerAccess(ctx))) {
