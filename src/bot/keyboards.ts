@@ -17,6 +17,7 @@ import {
   UserWeeklyVacancyPage,
   DailyDigestPayload,
   VacancyLanguageMode,
+  VacancyRelevanceValue,
   VacancyReminderPage,
   VacancyRecord,
   WeeklyVacancyPage
@@ -280,7 +281,8 @@ export function createVacancyKeyboardWithActions(
   vacancy: VacancyRecord | MatchedVacancyRecord,
   _showNotifications: boolean,
   view: VacancyNotificationView = "compact",
-  origin?: VacancyCardOrigin
+  origin?: VacancyCardOrigin,
+  relevanceValue?: VacancyRelevanceValue
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .url("🔗 Открыть пост", vacancy.url)
@@ -309,9 +311,17 @@ export function createVacancyKeyboardWithActions(
       keyboard.row().text("↩️ К откликам", "status:applied:0");
     }
 
-    keyboard
-      .row()
-      .text(vacancy.userStatus === "hidden" ? "↩️ Вернуть в подборку" : "👎 Не подходит", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
+    if (vacancy.userStatus !== "hidden") {
+      keyboard
+        .row()
+        .text(relevanceValue === "relevant" ? "👍 Релевантна ✅" : "👍 Релевантна", appendVacancyCardOrigin(`vacancy:relevance:${vacancy.id}:relevant:${view}`, origin))
+        .text("👎 Не подходит", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
+    }
+    else {
+      keyboard
+        .row()
+        .text("↩️ Вернуть в подборку", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
+    }
   }
 
   return appendWeeklyReturn(keyboard, origin);

@@ -63,7 +63,8 @@ export type SchemaTableName =
   | "channel_discovery_runs"
   | "channel_discovery_candidates"
   | "channel_discovery_checks"
-  | "owner_report_delivery";
+  | "owner_report_delivery"
+  | "vacancy_relevance_feedback";
 
 export function createBaseSchema(db: SqliteDatabase): void {
   db.exec(`
@@ -516,6 +517,7 @@ export function runMigrations(db: SqliteDatabase): void {
   ensureChannelAlertStateTable(db);
   ensureChannelDiscoveryTables(db);
   ensureOwnerReportDeliveryTable(db);
+  ensureVacancyRelevanceFeedbackTable(db);
 }
 
 function ensureUserSettingsColumns(db: SqliteDatabase): void {
@@ -1005,6 +1007,22 @@ function ensureUserVacancyStatesTable(db: SqliteDatabase): void {
   `);
 }
 
+function ensureVacancyRelevanceFeedbackTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vacancy_relevance_feedback (
+      user_id TEXT NOT NULL,
+      vacancy_id INTEGER NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(user_id, vacancy_id),
+      CHECK(value IN ('relevant', 'not_relevant')),
+      FOREIGN KEY(vacancy_id) REFERENCES vacancies(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES bot_users(user_id) ON DELETE CASCADE
+    );
+  `);
+}
+
 function ensureUserVacancyHiddenReasonsTable(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_vacancy_hidden_reasons (
@@ -1322,7 +1340,8 @@ export function getSchemaTableColumns(db: SqliteDatabase, tableName: SchemaTable
     channel_discovery_candidates: "PRAGMA table_info(channel_discovery_candidates)"
     ,
     channel_discovery_checks: "PRAGMA table_info(channel_discovery_checks)",
-    owner_report_delivery: "PRAGMA table_info(owner_report_delivery)"
+    owner_report_delivery: "PRAGMA table_info(owner_report_delivery)",
+    vacancy_relevance_feedback: "PRAGMA table_info(vacancy_relevance_feedback)"
   };
   const statement = pragmaByTable[tableName];
   if (!statement) {

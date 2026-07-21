@@ -227,6 +227,8 @@ export type HiddenVacancyReason =
   | "seen_before"
   | "unwanted_niche"
   | "unclear_company";
+export type VacancyRelevanceValue = "relevant" | "not_relevant";
+
 export type FilterSuggestionKey =
   | "hidden_not_rf"
   | "hidden_office_or_hybrid"
@@ -281,6 +283,7 @@ export type AnalyticsEventName =
   | "user_role_changed"
   | "user_access_changed"
   | "vacancy_status_changed"
+  | "vacancy_relevance_feedback"
   | "poll_cycle_completed"
   | "poll_cycle_failed";
 
@@ -648,6 +651,14 @@ export interface UserStatusVacancyRecord extends VacancyRecord {
   matchedProfileNames?: string[];
   application?: VacancyApplicationRecord | null;
   hiddenReason?: HiddenVacancyReason | null;
+}
+
+export interface VacancyRelevanceFeedbackRecord {
+  userId: string;
+  vacancyId: number;
+  value: VacancyRelevanceValue;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserVacancyHiddenReasonRecord {
