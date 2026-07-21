@@ -33,6 +33,7 @@ import {
     parseHiddenVacancyReason
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
+import { buildWeeklyReport } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
 import { VacancyFilter } from "../services/vacancyFilter";
@@ -113,7 +114,8 @@ const ADMIN_BOT_COMMANDS = [
 ];
 const OWNER_BOT_COMMANDS = [
     ...ADMIN_BOT_COMMANDS,
-    { command: "backup", description: "Отправить резервную копию базы" }
+    { command: "backup", description: "Отправить резервную копию базы" },
+    { command: "report", description: "Аналитика за 7 дней" }
 ];
 
 export async function dismissHiddenVacancyCardMessage(
@@ -1269,6 +1271,23 @@ export function createBotController(
     });
     bot.command("backup", async (ctx) => {
         await sendBackupSnapshot(ctx);
+    });
+    bot.command("report", async (ctx) => {
+        if (!(await ensureOwnerAccess(ctx))) {
+            return;
+        }
+        const chatId = ctx.chat?.id;
+        if (!chatId) {
+            await ctx.reply("Не удалось определить чат для отправки отчёта.");
+            return;
+        }
+        try {
+            const report = buildWeeklyReport(database);
+            await ctx.reply(report);
+        } catch (error) {
+            loggerModule.logger.error({ err: error }, "Failed to build weekly report");
+            await ctx.reply("⚠️ Не удалось сформировать отчёт.");
+        }
     });
     bot.callbackQuery("menu:home", async (ctx) => {
         await ctx.answerCallbackQuery();

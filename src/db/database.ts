@@ -615,6 +615,60 @@ export class VacancyDatabase {
     return row?.count ?? 0;
   }
 
+  countAnalyticsEventsSince(eventName: AnalyticsEventRecord["eventName"], sinceIso: string, untilIso?: string): number {
+    const row = untilIso
+      ? (this.getDb()
+          .prepare("SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = ? AND occurred_at >= ? AND occurred_at <= ?")
+          .get(eventName, sinceIso, untilIso) as CountRow | undefined)
+      : (this.getDb()
+          .prepare("SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = ? AND occurred_at >= ?")
+          .get(eventName, sinceIso) as CountRow | undefined);
+    return row?.count ?? 0;
+  }
+
+  countDistinctAnalyticsUserIdsSince(eventName: AnalyticsEventRecord["eventName"], sinceIso: string, untilIso?: string): number {
+    const row = untilIso
+      ? (this.getDb()
+          .prepare("SELECT COUNT(DISTINCT user_id) AS count FROM analytics_events WHERE event_name = ? AND user_id IS NOT NULL AND occurred_at >= ? AND occurred_at <= ?")
+          .get(eventName, sinceIso, untilIso) as CountRow | undefined)
+      : (this.getDb()
+          .prepare("SELECT COUNT(DISTINCT user_id) AS count FROM analytics_events WHERE event_name = ? AND user_id IS NOT NULL AND occurred_at >= ?")
+          .get(eventName, sinceIso) as CountRow | undefined);
+    return row?.count ?? 0;
+  }
+
+  countAllDistinctAnalyticsUserIdsSince(sinceIso: string, untilIso?: string): number {
+    const row = untilIso
+      ? (this.getDb()
+          .prepare("SELECT COUNT(DISTINCT user_id) AS count FROM analytics_events WHERE user_id IS NOT NULL AND occurred_at >= ? AND occurred_at <= ?")
+          .get(sinceIso, untilIso) as CountRow | undefined)
+      : (this.getDb()
+          .prepare("SELECT COUNT(DISTINCT user_id) AS count FROM analytics_events WHERE user_id IS NOT NULL AND occurred_at >= ?")
+          .get(sinceIso) as CountRow | undefined);
+    return row?.count ?? 0;
+  }
+
+  countAnalyticsStatusChangesSince(status: string, sinceIso: string, untilIso?: string): number {
+    const row = untilIso
+      ? (this.getDb()
+          .prepare(
+            `SELECT COUNT(*) AS count FROM analytics_events
+             WHERE event_name = 'vacancy_status_changed'
+               AND json_extract(properties_json, '$.next_status') = ?
+               AND occurred_at >= ? AND occurred_at <= ?`
+          )
+          .get(status, sinceIso, untilIso) as CountRow | undefined)
+      : (this.getDb()
+          .prepare(
+            `SELECT COUNT(*) AS count FROM analytics_events
+             WHERE event_name = 'vacancy_status_changed'
+               AND json_extract(properties_json, '$.next_status') = ?
+               AND occurred_at >= ?`
+          )
+          .get(status, sinceIso) as CountRow | undefined);
+    return row?.count ?? 0;
+  }
+
   cleanupTechnicalData(now = new Date()): TechnicalDataCleanupSummary {
     const db = this.getDb();
     const cutoffIso = (retentionDays: number) =>
