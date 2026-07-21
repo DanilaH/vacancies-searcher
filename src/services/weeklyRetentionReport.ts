@@ -1,15 +1,6 @@
 import type { VacancyDatabase } from "../db/database";
 import { ACTIVITY_EVENT_NAMES } from "./activityWhitelist";
 
-export interface CohortRow {
-  cohortMonday: string;
-  cohortSize: number;
-  w1: number | null;
-  w2: number | null;
-  w3: number | null;
-  w4: number | null;
-}
-
 /**
  * Compute the Monday (start of the ISO week, UTC) for a given ISO date string.
  */
@@ -25,12 +16,12 @@ export function computeCohortMonday(isoDate: string): string {
   return d.toISOString();
 }
 
-function formatRetentionValue(value: number | null): string {
+function retentionLabel(value: number | null): string {
   if (value === null) return "—";
   return `${Math.round(value)}%`;
 }
 
-function formatCohortDate(mondayIso: string): string {
+function formatDate(mondayIso: string): string {
   const d = new Date(mondayIso);
   const day = String(d.getUTCDate()).padStart(2, "0");
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -42,7 +33,6 @@ export function buildWeeklyRetentionReport(
   database: VacancyDatabase,
   now = new Date()
 ): string {
-  const nowIso = now.toISOString();
   const allUsers = database.listAllUsers().filter((u) => u.role !== "owner" && u.role !== "admin");
   if (allUsers.length === 0) {
     return "📊 Ретенция пользователей\n\nНет данных. В базе нет пользователей.";
@@ -62,33 +52,28 @@ export function buildWeeklyRetentionReport(
   const sortedMondays = [...cohortMap.keys()].sort().reverse();
   const recentCohorts = sortedMondays.slice(0, 8);
 
-  const rows: CohortRow[] = [];
+  const blocks: string[] = [];
+
   for (const cohortMonday of recentCohorts) {
     const userIds = cohortMap.get(cohortMonday)!;
     const cohortSize = userIds.length;
     const cohortStart = new Date(cohortMonday);
 
-    const weeks: Array<{ offset: number; label: string }> = [
-      { offset: 7, label: "w1" },
-      { offset: 14, label: "w2" },
-      { offset: 21, label: "w3" },
-      { offset: 28, label: "w4" }
+    const weekBoundaries = [
+      { offset: 7, label: "W1" },
+      { offset: 14, label: "W2" },
+      { offset: 21, label: "W3" },
+      { offset: 28, label: "W4" }
     ];
 
-    const result: CohortRow = {
-      cohortMonday,
-      cohortSize,
-      w1: null,
-      w2: null,
-      w3: null,
-      w4: null
-    };
+    const values: string[] = [];
 
-    for (const w of weeks) {
+    for (const w of weekBoundaries) {
       const weekStart = new Date(cohortStart.getTime() + w.offset * 24 * 60 * 60 * 1000);
       const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-      if (weekStart >= now) {
-        break;
+      if (weekEnd > now) {
+        values.push(`${w.label}: —`);
+        continue;
       }
       const activeInWeek = database.countCohortActivityUsers(
         userIds,
@@ -96,35 +81,30 @@ export function buildWeeklyRetentionReport(
         weekStart.toISOString(),
         weekEnd.toISOString()
       );
-      const retentionPct = cohortSize > 0 ? (activeInWeek / cohortSize) * 100 : 0;
-      if (w.label === "w1") result.w1 = retentionPct;
-      else if (w.label === "w2") result.w2 = retentionPct;
-      else if (w.label === "w3") result.w3 = retentionPct;
-      else if (w.label === "w4") result.w4 = retentionPct;
+      const pct = cohortSize > 0 ? (activeInWeek / cohortSize) * 100 : 0;
+      values.push(`${w.label}: ${retentionLabel(pct)}`);
     }
 
-    rows.push(result);
+    const date = formatDate(cohortMonday);
+    const header = `Неделя ${date} · ${cohortSize} ${pluralizeUsers(cohortSize)}`;
+    const line = values.join(" · ");
+    blocks.push(`${header}\n${line}`);
   }
 
   const lines: string[] = [
     "📊 Ретенция пользователей (недельные когорты)",
     "Часовой пояс: UTC",
     "",
-    "Формула: Wn = пользователи когорты с активностью",
-    "           на неделе n / размер когорты",
-    "",
-    "Неделя начала | Размер | W1   | W2   | W3   | W4"
+    "Формула: Wn = пользователи когорты с активностью на неделе n / размер когорты",
+    ""
   ];
 
-  for (const row of rows) {
-    const date = formatCohortDate(row.cohortMonday);
-    const size = String(row.cohortSize);
-    const w1 = formatRetentionValue(row.w1).padStart(4);
-    const w2 = formatRetentionValue(row.w2).padStart(4);
-    const w3 = formatRetentionValue(row.w3).padStart(4);
-    const w4 = formatRetentionValue(row.w4).padStart(4);
-    lines.push(`${date} | ${size.padStart(5)} | ${w1} | ${w2} | ${w3} | ${w4}`);
-  }
-
+  lines.push(blocks.join("\n\n"));
   return lines.join("\n");
+}
+
+function pluralizeUsers(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return "пользователь";
+  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return "пользователя";
+  return "пользователей";
 }

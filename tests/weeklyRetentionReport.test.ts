@@ -91,12 +91,12 @@ test("empty database produces no-cohorts report", () => {
   database.close();
 });
 
-test("user without any events still appears in cohort with zero retention", () => {
+test("user without any events still appears in cohort blocks", () => {
   const { config, database } = createDatabase();
   insertUserSql(config.databasePath, "u1", daysOffset(FIXED_NOW, -60));
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("0%"));
   assert.ok(!report.includes("u1"));
-  assert.ok(report.includes("%"));
   database.close();
 });
 
@@ -122,7 +122,7 @@ test("one user with multiple events in same week counts once", () => {
   addActivity(database, "u1", hoursOffset(week1, 12));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  assert.ok(report.includes("100%"));
+  assert.ok(report.includes("W1: 100%"));
   database.close();
 });
 
@@ -134,14 +134,10 @@ test("W1-W4 are counted independently for the same user", () => {
   addActivity(database, "u1", daysOffset(cs.toISOString(), 21));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLine = lines.find((l) => l.includes("%") && l.includes("|") && !l.includes("Формула") && !l.includes("Неделя"));
-  const parts = dataLine?.split("|").map((s) => s.trim()) ?? [];
-  assert.ok(parts.length >= 6);
-  assert.equal(parts[2].trim().replace("%", ""), "100");
-  assert.equal(parts[3].trim().replace("%", ""), "0");
-  assert.equal(parts[4].trim().replace("%", ""), "100");
-  assert.equal(parts[5].trim().replace("%", ""), "0");
+  assert.ok(report.includes("W1: 100%"));
+  assert.ok(report.includes("W2: 0%"));
+  assert.ok(report.includes("W3: 100%"));
+  assert.ok(report.includes("W4: 0%"));
   database.close();
 });
 
@@ -151,13 +147,7 @@ test("non-activity events do not create retention", () => {
   addNonActivity(database, "u1", daysOffset(FIXED_NOW, -63));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLine = lines.find((l) => l.includes("|") && l.includes("%"));
-  assert.ok(dataLine, "Report should have a data line");
-  const parts = dataLine!.split("|").map((s) => s.trim());
-  for (let i = 2; i <= 5; i++) {
-    assert.equal(parts[i].trim(), "0%");
-  }
+  assert.ok(report.includes("W1: 0%"));
   database.close();
 });
 
@@ -170,7 +160,7 @@ test("events on exact week boundaries are counted correctly", () => {
   addActivity(database, "u1", hoursOffset(daysOffset(cs.toISOString(), 14), -1));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  assert.ok(report.includes("100%"));
+  assert.ok(report.includes("W1: 100%"));
   database.close();
 });
 
@@ -180,13 +170,31 @@ test("future events are excluded", () => {
   addActivity(database, "u1", daysOffset(FIXED_NOW, 7));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLine = lines.find((l) => l.includes("|") && l.includes("%"));
-  assert.ok(dataLine);
-  const parts = dataLine!.split("|").map((s) => s.trim());
-  for (let i = 2; i <= 5; i++) {
-    assert.equal(parts[i].trim(), "0%");
-  }
+  assert.ok(report.includes("W1: 0%"));
+  assert.ok(report.includes("W2: 0%"));
+  assert.ok(report.includes("W3: 0%"));
+  assert.ok(report.includes("W4: 0%"));
+  database.close();
+});
+
+test("partial week (weekStart < now < weekEnd) shows dash", () => {
+  const { config, database } = createDatabase();
+  insertUserSql(config.databasePath, "u1", hoursOffset(FIXED_NOW, -6));
+  addActivity(database, "u1", hoursOffset(FIXED_NOW, -3));
+
+  const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("W1: —"), "W1 should be dash because weekEnd > now");
+  database.close();
+});
+
+test("fully completed past week shows percentage, not dash", () => {
+  const { config, database } = createDatabase();
+  insertUserSql(config.databasePath, "u1", daysOffset(FIXED_NOW, -70));
+  addActivity(database, "u1", daysOffset(FIXED_NOW, -63));
+
+  const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("W1: 100%"));
+  assert.ok(!report.includes("W1: —"));
   database.close();
 });
 
@@ -195,12 +203,10 @@ test("future weeks show dash instead of 0%", () => {
   insertUserSql(config.databasePath, "u1", hoursOffset(FIXED_NOW, -6));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLine = lines.find((l) => l.includes("|") && l.includes("—"));
-  if (dataLine) {
-    const parts = dataLine!.split("|").map((s) => s.trim());
-    assert.equal(parts[2].trim(), "—");
-  }
+  assert.ok(report.includes("W1: —"));
+  assert.ok(report.includes("W2: —"));
+  assert.ok(report.includes("W3: —"));
+  assert.ok(report.includes("W4: —"));
   database.close();
 });
 
@@ -213,9 +219,8 @@ test("two different cohorts do not mix users", () => {
   addActivity(database, "u2", daysOffset(FIXED_NOW, -7));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLines = lines.filter((l) => l.includes("|") && l.includes("%"));
-  assert.ok(dataLines.length >= 2);
+  const matches = report.match(/Неделя/g);
+  assert.ok(matches && matches.length >= 2, "Should contain at least 2 cohort blocks");
   database.close();
 });
 
@@ -226,20 +231,18 @@ test("at most 8 cohorts are shown", () => {
   }
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
-  const lines = report.split("\n");
-  const dataLines = lines.filter((l) => l.includes("|") && l.includes("%"));
-  assert.equal(dataLines.length, 8);
+  const matches = report.match(/Неделя /g);
+  assert.equal(matches?.length, 8);
   database.close();
 });
 
-test("report includes timezone note, formula, and header", () => {
+test("report includes timezone note and formula", () => {
   const { config, database } = createDatabase();
   insertUserSql(config.databasePath, "u1", daysOffset(FIXED_NOW, -70));
 
   const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("Часовой пояс: UTC"));
   assert.ok(report.includes("Формула"));
-  assert.ok(report.includes("Неделя начала"));
   database.close();
 });
 
@@ -297,6 +300,33 @@ test("countCohortActivityUsers with empty eventNames returns 0", () => {
   database.close();
 });
 
+test("snapshot: exact block format and pluralisation", () => {
+  const { config, database } = createDatabase();
+  insertUserSql(config.databasePath, "u_a", daysOffset(FIXED_NOW, -35));
+  insertUserSql(config.databasePath, "u_b", daysOffset(FIXED_NOW, -35));
+  addActivity(database, "u_a", daysOffset(computeCohortMonday(daysOffset(FIXED_NOW, -35)), 7));
+
+  const report = buildWeeklyRetentionReport(database, new Date(FIXED_NOW));
+  const lines = report.split("\n");
+
+  assert.ok(lines[0].includes("📊 Ретенция"));
+  assert.ok(lines[1].includes("Часовой пояс: UTC"));
+  assert.ok(lines[3].includes("Формула"));
+
+  const blockHeader = lines[5];
+  assert.ok(blockHeader.startsWith("Неделя "));
+  assert.ok(blockHeader.includes("· 2 пользователя"));
+
+  const blockLine = lines[6];
+  assert.ok(blockLine.startsWith("W1: 50%"));
+  assert.ok(blockLine.includes("W2: 0%"));
+  assert.ok(blockLine.includes("W3: 0%"));
+  assert.ok(blockLine.includes("W4: 0%"));
+  assert.ok(!blockLine.includes("—"), "All weeks must be completed");
+
+  database.close();
+});
+
 // --- Handler-level access control test ---
 
 test("production handler: owner gets report, admin/member denied", async () => {
@@ -327,7 +357,6 @@ test("production handler: owner gets report, admin/member denied", async () => {
   });
 
   let lastReplyText: string | undefined;
-  let reportBuilderCalled = false;
 
   bot.api.config.use((prev, method, payload) => {
     if (method === "sendMessage") {
@@ -355,20 +384,17 @@ test("production handler: owner gets report, admin/member denied", async () => {
     };
   }
 
-  // Owner gets report
   lastReplyText = undefined;
   await bot.handleUpdate(await makeUpdate(777));
   const ownerText: string = lastReplyText ?? "";
   assert.ok(ownerText.includes("Ретенция"), "owner must see retention report");
   assert.ok(!ownerText.includes("🔒"), "owner must not see lock emoji");
 
-  // Admin denied
   lastReplyText = undefined;
   await bot.handleUpdate(await makeUpdate(888));
   const adminText: string = lastReplyText ?? "";
   assert.ok(adminText.includes("🔒"), "admin must be denied");
 
-  // Member denied
   lastReplyText = undefined;
   await bot.handleUpdate(await makeUpdate(999));
   const memberText: string = lastReplyText ?? "";

@@ -13,11 +13,8 @@ test("background/system events are not whitelisted", () => {
   const backgroundEvents = [
     "vacancy_matched",
     "vacancy_notified",
-    "vacancy_reminder_scheduled",
     "vacancy_reminder_cancelled",
     "vacancy_reminder_sent",
-    "vacancy_application_followup_scheduled",
-    "vacancy_application_followup_cancelled",
     "vacancy_application_followup_sent",
     "daily_digest_sent",
     "daily_digest_skipped",
@@ -52,6 +49,9 @@ test("user-initiated events are whitelisted", () => {
     "vacancy_status_changed",
     "vacancy_application_created",
     "vacancy_application_note_updated",
+    "vacancy_reminder_scheduled",
+    "vacancy_application_followup_scheduled",
+    "vacancy_application_followup_cancelled",
     "vacancy_hidden_reason_set",
     "vacancy_hidden_reason_skipped",
     "vacancy_relevance_feedback",
@@ -70,7 +70,6 @@ test("ACTIVITY_EVENT_NAMES has no duplicates", () => {
   assert.equal(new Set(ACTIVITY_EVENT_NAMES).size, ACTIVITY_EVENT_NAMES.length);
 });
 
-test("ACTIVITY_EVENT_NAMES is readonly and cannot be mutated", () => {
-  const names = ACTIVITY_EVENT_NAMES as readonly string[];
-  assert.equal(Array.isArray(names), true);
+test("ACTIVITY_EVENT_NAMES contains exactly 27 events", () => {
+  assert.equal(ACTIVITY_EVENT_NAMES.length, 27);
 });
