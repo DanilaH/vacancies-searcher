@@ -274,7 +274,7 @@ Every active user has their own:
 
 The main menu exposes:
 
-- `🎯 Мои фильтры`
+- `🎯 Мои поиски`
 - `⚙️ Настройки`
 - `🛠️ Настройки (админ)` for `owner/admin`
 

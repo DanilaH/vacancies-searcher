@@ -45,7 +45,7 @@ export function createMainKeyboard(showAdmin: boolean, showNotifications: boolea
       .text("✅ Отклики", "status:applied:0")
       .text("📌 Мои вакансии", "menu:vacancies")
       .row()
-      .text("🎯 Мои фильтры", "menu:filters")
+      .text("🎯 Мои поиски", "menu:filters")
       .text("⚙️ Настройки", "menu:settings");
   }
 
@@ -57,7 +57,7 @@ export function createMainKeyboard(showAdmin: boolean, showNotifications: boolea
 }
 
 export function createBlockedWeeklyKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("🎯 Мои фильтры", "menu:filters").row().text("🏠 Меню", "menu:home");
+  return new InlineKeyboard().text("🎯 Мои поиски", "menu:filters").row().text("🏠 Меню", "menu:home");
 }
 
 export function createOnboardingIntroKeyboard(): InlineKeyboard {
@@ -253,7 +253,7 @@ export function createDiagnosticsKeyboard(
   filterSuggestion?: UserFilterSuggestionCandidate | null
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("🎯 Мои фильтры", "menu:filters")
+    .text("🎯 Мои поиски", "menu:filters")
     .text("⚙️ Настройки", "menu:settings");
 
   if (showWeekly) {
@@ -714,7 +714,7 @@ export function createOnboardingCompletionKeyboard(showAdmin: boolean, showWeekl
     keyboard.text("🗂️ Вакансии за неделю", "week:0").row();
   }
 
-  keyboard.text("🎯 Мои фильтры", "menu:filters");
+  keyboard.text("🎯 Мои поиски", "menu:filters");
 
   if (showAdmin) {
     keyboard.row().text("⚙️ Настройки (админ)", "menu:admin");
@@ -727,7 +727,7 @@ export function createRematchSummaryKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🗂️ Вакансии за неделю", "week:0")
     .row()
-    .text("🎯 Мои фильтры", "menu:filters")
+    .text("🎯 Мои поиски", "menu:filters")
     .row()
     .text("🏠 Меню", "menu:home");
 }

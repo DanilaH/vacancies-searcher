@@ -249,7 +249,7 @@ export function formatAdminPanel(state: AdminPanelState): string {
 
 export function formatPersonalKeywords(profile: UserSearchProfile): string {
   return [
-    "🎯 Мои фильтры",
+    "🎯 Мои поиски",
     "",
     "📍 Условия и формат:",
     formatProfileKeywordList(profile.requiredContextKeywords),
@@ -364,7 +364,7 @@ export function createHhSearchSettingsKeyboard(settings: HhSearchSettings): Inli
   keyboard.text(`💼 Занятость: ${hhEmploymentLabel(settings.employment)}`, "filters:hh:cycle_employment").row();
   keyboard.text("🗓️ Период", "filters:hh:edit_period").row();
   keyboard.text("🔄 Пересобрать подборку", "filters:hh:rematch").row();
-  return keyboard.text("🎯 Мои фильтры", "menu:filters").row().text("🏠 Меню", "menu:home");
+  return keyboard.text("🎯 Мои поиски", "menu:filters").row().text("🏠 Меню", "menu:home");
 }
 
 export function formatHhInputPrompt(action: "text" | "area" | "salary" | "period", settings: HhSearchSettings): string {
@@ -803,7 +803,7 @@ export function createPendingInputKeyboard(backTarget = "menu:home"): InlineKeyb
       backTarget === "menu:admin"
         ? "⚙️ Админ-панель"
         : backTarget === "menu:filters"
-          ? "🎯 Мои фильтры"
+          ? "🎯 Мои поиски"
           : backTarget === "filters:hh"
             ? "↩️ К настройкам hh.ru"
             : backTarget === "channels:discover"

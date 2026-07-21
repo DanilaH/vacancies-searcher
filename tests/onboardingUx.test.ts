@@ -30,7 +30,7 @@ test("start message explains the current main menu map", () => {
   const formatted = formatStartMessage(createTempDatabaseConfig());
 
   assert.match(formatted, /Вакансии за неделю/u);
-  assert.match(formatted, /Мои фильтры/u);
+  assert.match(formatted, /Мои поиски/u);
   assert.match(formatted, /Мои вакансии/u);
   assert.match(formatted, /Настройки/u);
   assert.match(formatted, /дайджест/u);
@@ -50,7 +50,7 @@ test("setup choice message explains preset and manual paths", () => {
 
   assert.match(formatted, /пресет — быстрый старт/i);
   assert.match(formatted, /ручная настройка — если хочешь точнее/i);
-  assert.match(formatted, /Мои фильтры/);
+  assert.match(formatted, /Мои поиски/);
   assert.match(formatted, /до пяти отдельных поисков/i);
 });
 
@@ -143,7 +143,7 @@ test("skipped completion stays calm and does not promise results", () => {
   );
 
   assert.match(formatted, /Настройка отложена/i);
-  assert.match(formatted, /Мои фильтры/i);
+  assert.match(formatted, /Мои поиски/i);
   assert.doesNotMatch(formatted, /Уже найдено/i);
 });
 
