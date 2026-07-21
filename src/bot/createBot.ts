@@ -33,7 +33,7 @@ import {
     parseHiddenVacancyReason
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
-import { buildWeeklyReport } from "../services/weeklyReport";
+import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
 import { VacancyFilter } from "../services/vacancyFilter";
@@ -1282,11 +1282,38 @@ export function createBotController(
             return;
         }
         try {
-            const report = buildWeeklyReport(database);
-            await ctx.reply(report);
+            const period: ReportPeriod = 7;
+            const report = buildWeeklyReport(database, undefined, period);
+            const keyboard = buildReportKeyboard(period);
+            await ctx.reply(report, { reply_markup: keyboard });
         } catch (error) {
             loggerModule.logger.error({ err: error }, "Failed to build weekly report");
             await ctx.reply("⚠️ Не удалось сформировать отчёт.");
+        }
+    });
+    bot.callbackQuery(/^report:period:(\d+)$/, async (ctx) => {
+        if (!(await ensureOwnerAccess(ctx))) {
+            return;
+        }
+        const periodValue = Number.parseInt(ctx.match?.[1] ?? "0", 10);
+        if (!REPORT_PERIOD_OPTIONS.includes(periodValue as ReportPeriod)) {
+            await ctx.answerCallbackQuery({ text: "⚠️ Некорректный период." });
+            return;
+        }
+        const period = periodValue as ReportPeriod;
+        const msg = ctx.callbackQuery.message;
+        if (msg && "reply_markup" in msg && isPeriodSelectedInMessage(msg, period)) {
+            await ctx.answerCallbackQuery();
+            return;
+        }
+        try {
+            const report = buildWeeklyReport(database, undefined, period);
+            const keyboard = buildReportKeyboard(period);
+            await ctx.editMessageText(report, { reply_markup: keyboard });
+            await ctx.answerCallbackQuery();
+        } catch (error) {
+            loggerModule.logger.error({ err: error }, "Failed to rebuild report for period");
+            await ctx.answerCallbackQuery({ text: "⚠️ Не удалось обновить отчёт." });
         }
     });
     bot.callbackQuery("menu:home", async (ctx) => {
