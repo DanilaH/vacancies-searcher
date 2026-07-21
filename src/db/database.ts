@@ -1572,6 +1572,40 @@ export class VacancyDatabase {
     };
   }
 
+  getAuditQualityMetrics(
+    userId: string,
+    sinceIso: string,
+    untilIso: string
+  ): {
+    totalCandidates: number;
+    reviewedCount: number;
+    missedRelevantCount: number;
+    correctRejectionCount: number;
+  } {
+    const row = this.getDb()
+      .prepare(
+        `SELECT
+          COUNT(*) AS total_candidates,
+          COUNT(CASE WHEN verdict IN ('missed_relevant', 'correct_rejection') THEN 1 END) AS reviewed_count,
+          SUM(CASE WHEN verdict = 'missed_relevant' THEN 1 ELSE 0 END) AS missed_relevant_count,
+          SUM(CASE WHEN verdict = 'correct_rejection' THEN 1 ELSE 0 END) AS correct_rejection_count
+        FROM rejected_match_audit
+        WHERE user_id = ? AND decided_at >= ? AND decided_at < ?`
+      )
+      .get(userId, sinceIso, untilIso) as {
+        total_candidates: number;
+        reviewed_count: number;
+        missed_relevant_count: number;
+        correct_rejection_count: number;
+      };
+    return {
+      totalCandidates: row.total_candidates,
+      reviewedCount: row.reviewed_count,
+      missedRelevantCount: row.missed_relevant_count,
+      correctRejectionCount: row.correct_rejection_count
+    };
+  }
+
   setUserVacancyHiddenReason(
     userId: string,
     vacancyId: number,

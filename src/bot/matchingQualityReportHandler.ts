@@ -5,7 +5,8 @@ import * as loggerModule from "../logger";
 
 export async function handleQualityReportCommand(
   ctx: grammy.Context,
-  database: VacancyDatabase
+  database: VacancyDatabase,
+  now?: Date
 ): Promise<void> {
   if (!database.hasOwnerAccess(ctx.from?.id)) {
     await ctx.reply("Команда доступна только владельцу");
@@ -13,7 +14,7 @@ export async function handleQualityReportCommand(
   }
   try {
     const userId = String(ctx.from!.id);
-    const report = buildMatchingQualityReport(database, userId);
+    const report = buildMatchingQualityReport(database, userId, 30, now);
     await ctx.reply(report);
   } catch (error) {
     loggerModule.logger.error({ err: error }, "Failed to build matching quality report");
