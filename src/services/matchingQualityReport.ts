@@ -7,10 +7,10 @@ function formatDate(d: Date): string {
   return `${day}.${month}.${year}`;
 }
 
-function pluralizeFeedback(n: number): string {
-  if (n % 10 === 1 && n % 100 !== 11) return "ка";
-  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return "ки";
-  return "ок";
+export function pluralizeFeedback(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return "оценка";
+  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return "оценки";
+  return "оценок";
 }
 
 export function buildMatchingQualityReport(

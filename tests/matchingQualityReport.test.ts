@@ -4,8 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import BetterSqlite3 from "better-sqlite3";
 import { VacancyDatabase } from "../src/db/database";
-import { buildMatchingQualityReport } from "../src/services/matchingQualityReport";
+import { buildMatchingQualityReport, pluralizeFeedback } from "../src/services/matchingQualityReport";
 import { handleQualityReportCommand } from "../src/bot/matchingQualityReportHandler";
 import { createTestConfig } from "./helpers";
 
@@ -23,7 +24,7 @@ function createFixture() {
   });
   const database = new VacancyDatabase(config);
   database.initialize();
-  return { database, tempDir };
+  return { config, database, tempDir };
 }
 
 function setupOwner(database: VacancyDatabase): void {
@@ -44,13 +45,15 @@ function makeFilterResult(): FilterResult {
   };
 }
 
+let _msgSeq = 0;
+
 function insertVacancy(
   database: VacancyDatabase,
   source: SourceName,
   channel: string,
-  messageId: string,
   text: string
 ): number {
+  const messageId = `mqr-${process.pid}-${Date.now()}-${++_msgSeq}`;
   const result = database.recordMessage(
     {
       source,
@@ -67,10 +70,25 @@ function insertVacancy(
   return result.vacancy.id;
 }
 
+function createMatch(
+  database: VacancyDatabase,
+  config: { databasePath: string },
+  userId: string,
+  vacancyId: number
+): void {
+  const createdAt = new Date().toISOString();
+  const conn = new BetterSqlite3(config.databasePath);
+  conn.prepare(
+    `INSERT INTO user_vacancy_matches (user_id, vacancy_id, score, match_summary, matched_keywords_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(userId, vacancyId, 100, "test", '["test"]', createdAt, createdAt);
+  conn.close();
+}
+
 // --- Service tests ---
 
 test("no matches returns zero report", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
   const report = buildMatchingQualityReport(database, "777");
@@ -82,16 +100,16 @@ test("no matches returns zero report", () => {
 });
 
 test("data isolation: only the requesting user's data is counted", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
   setupMember(database, "u1");
   setupMember(database, "u2");
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "text for u1");
-  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "m2", "different text for u2");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "text for u1");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "different text for u2");
 
-  database.createUserVacancyMatch("u1", v1, makeFilterResult());
-  database.createUserVacancyMatch("u2", v2, makeFilterResult());
+  createMatch(database, config, "u1", v1);
+  createMatch(database, config, "u2", v2);
   database.upsertVacancyRelevanceFeedback("u1", v1, "relevant");
   database.upsertVacancyRelevanceFeedback("u2", v2, "not_relevant");
 
@@ -104,19 +122,19 @@ test("data isolation: only the requesting user's data is counted", () => {
 });
 
 test("counts matches and feedback correctly", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
   setupMember(database, "u1");
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "m2", "b");
-  const v3 = insertVacancy(database, "telegram_web_preview", "ch1", "m3", "c");
-  const v4 = insertVacancy(database, "telegram_web_preview", "ch1", "m4", "d");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "b");
+  const v3 = insertVacancy(database, "telegram_web_preview", "ch1", "c");
+  const v4 = insertVacancy(database, "telegram_web_preview", "ch1", "d");
 
-  database.createUserVacancyMatch("u1", v1, makeFilterResult());
-  database.createUserVacancyMatch("u1", v2, makeFilterResult());
-  database.createUserVacancyMatch("u1", v3, makeFilterResult());
-  database.createUserVacancyMatch("u1", v4, makeFilterResult());
+  createMatch(database, config, "u1", v1);
+  createMatch(database, config, "u1", v2);
+  createMatch(database, config, "u1", v3);
+  createMatch(database, config, "u1", v4);
 
   database.upsertVacancyRelevanceFeedback("u1", v1, "relevant");
   database.upsertVacancyRelevanceFeedback("u1", v2, "not_relevant");
@@ -131,12 +149,12 @@ test("counts matches and feedback correctly", () => {
 });
 
 test("uses current feedback value after change", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
   setupMember(database, "u1");
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  database.createUserVacancyMatch("u1", v1, makeFilterResult());
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  createMatch(database, config, "u1", v1);
   database.upsertVacancyRelevanceFeedback("u1", v1, "not_relevant");
   database.upsertVacancyRelevanceFeedback("u1", v1, "relevant");
 
@@ -147,11 +165,11 @@ test("uses current feedback value after change", () => {
 });
 
 test("feedback without matching is not counted", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
   setupMember(database, "u1");
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "orphan");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "orphan");
   database.upsertVacancyRelevanceFeedback("u1", v1, "relevant");
 
   const report = buildMatchingQualityReport(database, "u1");
@@ -161,11 +179,11 @@ test("feedback without matching is not counted", () => {
 });
 
 test("lower boundary: matches at exactly 30 days ago are included", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
   // Use direct SQL so we can control created_at precisely
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "boundary");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "boundary");
   const boundaryDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 + 60_000);
   const db = (database as unknown as { getDb(): ReturnType<typeof database["getDb"]> }).getDb();
   db.prepare(
@@ -179,10 +197,10 @@ test("lower boundary: matches at exactly 30 days ago are included", () => {
 });
 
 test("old matches before the window are excluded", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "old");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "old");
   const oldDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
   const db = (database as unknown as { getDb(): ReturnType<typeof database["getDb"]> }).getDb();
   db.prepare(
@@ -196,10 +214,10 @@ test("old matches before the window are excluded", () => {
 });
 
 test("future matches are excluded", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "future");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "future");
   const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const db = (database as unknown as { getDb(): ReturnType<typeof database["getDb"]> }).getDb();
   db.prepare(
@@ -213,14 +231,14 @@ test("future matches are excluded", () => {
 });
 
 test("coverage percentage is calculated correctly", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "m2", "b");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "b");
 
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
-  database.createUserVacancyMatch("777", v2, makeFilterResult());
+  createMatch(database, config, "777", v1);
+  createMatch(database, config, "777", v2);
   database.upsertVacancyRelevanceFeedback("777", v1, "relevant");
 
   const report = buildMatchingQualityReport(database, "777");
@@ -229,16 +247,16 @@ test("coverage percentage is calculated correctly", () => {
 });
 
 test("not-relevant share is calculated correctly", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "m2", "b");
-  const v3 = insertVacancy(database, "telegram_web_preview", "ch1", "m3", "c");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "b");
+  const v3 = insertVacancy(database, "telegram_web_preview", "ch1", "c");
 
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
-  database.createUserVacancyMatch("777", v2, makeFilterResult());
-  database.createUserVacancyMatch("777", v3, makeFilterResult());
+  createMatch(database, config, "777", v1);
+  createMatch(database, config, "777", v2);
+  createMatch(database, config, "777", v3);
   database.upsertVacancyRelevanceFeedback("777", v1, "not_relevant");
   database.upsertVacancyRelevanceFeedback("777", v2, "not_relevant");
   database.upsertVacancyRelevanceFeedback("777", v3, "relevant");
@@ -249,11 +267,11 @@ test("not-relevant share is calculated correctly", () => {
 });
 
 test("warning shown when feedback count is less than 10", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  createMatch(database, config, "777", v1);
   database.upsertVacancyRelevanceFeedback("777", v1, "relevant");
 
   const report = buildMatchingQualityReport(database, "777");
@@ -262,11 +280,11 @@ test("warning shown when feedback count is less than 10", () => {
 });
 
 test("no division by zero when there are matches but no feedback", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  createMatch(database, config, "777", v1);
 
   const report = buildMatchingQualityReport(database, "777");
   assert.ok(report.includes("Всего подобрано вакансий: 1"));
@@ -276,7 +294,7 @@ test("no division by zero when there are matches but no feedback", () => {
 });
 
 test("false negative disclaimer is always present", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
   const report = buildMatchingQualityReport(database, "777");
@@ -285,11 +303,11 @@ test("false negative disclaimer is always present", () => {
 });
 
 test("coverage is 100% when all matches have feedback", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  createMatch(database, config, "777", v1);
   database.upsertVacancyRelevanceFeedback("777", v1, "relevant");
 
   const report = buildMatchingQualityReport(database, "777");
@@ -298,14 +316,14 @@ test("coverage is 100% when all matches have feedback", () => {
 });
 
 test("handles only not-relevant feedback", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "a");
-  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "m2", "b");
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "a");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "b");
 
-  database.createUserVacancyMatch("777", v1, makeFilterResult());
-  database.createUserVacancyMatch("777", v2, makeFilterResult());
+  createMatch(database, config, "777", v1);
+  createMatch(database, config, "777", v2);
   database.upsertVacancyRelevanceFeedback("777", v1, "not_relevant");
   database.upsertVacancyRelevanceFeedback("777", v2, "not_relevant");
 
@@ -317,12 +335,12 @@ test("handles only not-relevant feedback", () => {
 });
 
 test("no warning shown when feedback count is 10 or more", () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   setupOwner(database);
 
   for (let i = 0; i < 10; i++) {
-    const v = insertVacancy(database, "telegram_web_preview", "ch1", `m${i}`, `text ${i}`);
-    database.createUserVacancyMatch("777", v, makeFilterResult());
+    const v = insertVacancy(database, "telegram_web_preview", "ch1", `text ${i}`);
+    createMatch(database, config, "777", v);
     database.upsertVacancyRelevanceFeedback("777", v, "relevant");
   }
 
@@ -331,10 +349,30 @@ test("no warning shown when feedback count is 10 or more", () => {
   database.close();
 });
 
+test("pluralizeFeedback: 1 -> оценка", () => {
+  assert.equal(pluralizeFeedback(1), "оценка");
+});
+
+test("pluralizeFeedback: 2 -> оценки", () => {
+  assert.equal(pluralizeFeedback(2), "оценки");
+});
+
+test("pluralizeFeedback: 5 -> оценок", () => {
+  assert.equal(pluralizeFeedback(5), "оценок");
+});
+
+test("pluralizeFeedback: 11 -> оценок", () => {
+  assert.equal(pluralizeFeedback(11), "оценок");
+});
+
+test("pluralizeFeedback: 21 -> оценка", () => {
+  assert.equal(pluralizeFeedback(21), "оценка");
+});
+
 // --- Handler-level tests ---
 
 test("handler: owner gets report, member is denied", async () => {
-  const { database } = createFixture();
+  const { config, database } = createFixture();
   database.addOrActivateBotUser("777", "owner", "777");
   database.addOrActivateBotUser("999", "member", "777");
 
