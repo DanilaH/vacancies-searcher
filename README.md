@@ -434,6 +434,7 @@ AUTOMATIC_BACKUP_RETENTION_DAYS=14
 - `/week` shows vacancies from the last 7 days
 - `/admin` opens the admin panel for `owner/admin`
 - `/backup` is visible only to `owner` and sends a fresh SQLite backup snapshot
+- `/qualityreport` is visible only to `owner` and shows match quality stats (last 30 days)
 
 ## Data safety notes
 
