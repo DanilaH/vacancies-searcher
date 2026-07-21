@@ -698,7 +698,7 @@ test("handler: owner gets report, member is denied", async () => {
   });
 
   bot.command("qualityreport", async (ctx) => {
-    await handleQualityReportCommand(ctx, database);
+    await handleQualityReportCommand(ctx, database, nowRef());
   });
 
   async function makeUpdate(fromId: number) {
@@ -758,7 +758,7 @@ test("handler: real /qualityreport response includes audit block", async () => {
   });
 
   bot.command("qualityreport", async (ctx) => {
-    await handleQualityReportCommand(ctx, database);
+    await handleQualityReportCommand(ctx, database, nowRef());
   });
 
   await bot.handleUpdate({
