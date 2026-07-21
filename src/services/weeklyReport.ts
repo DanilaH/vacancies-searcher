@@ -2,22 +2,19 @@ import type { VacancyDatabase } from "../db/database";
 
 const REPORT_WINDOW_DAYS = 7;
 
-function sinceIso(): string {
-  return new Date(Date.now() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
-}
+export function buildWeeklyReport(database: VacancyDatabase, now = new Date()): string {
+  const until = now.toISOString();
+  const since = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-export function buildWeeklyReport(database: VacancyDatabase): string {
-  const since = sinceIso();
-
-  const newUsers = database.countAnalyticsEventsSince("user_started", since);
-  const onboardingCompleted = database.countAnalyticsEventsSince("onboarding_completed", since);
-  const activeUsers = database.countDistinctAnalyticsUsersSince(since);
-  const matched = database.countAnalyticsEventsSince("vacancy_matched", since);
-  const notified = database.countAnalyticsEventsSince("vacancy_notified", since);
-  const feedOpened = database.countAnalyticsEventsSince("weekly_feed_opened", since);
-  const saved = database.countAnalyticsStatusChangesSince("saved", since);
-  const applied = database.countAnalyticsEventsSince("vacancy_application_created", since);
-  const hidden = database.countAnalyticsStatusChangesSince("hidden", since);
+  const newUsers = database.countDistinctAnalyticsUserIdsSince("user_started", since, until);
+  const onboardingCompleted = database.countDistinctAnalyticsUserIdsSince("onboarding_completed", since, until);
+  const activeUsers = database.countAllDistinctAnalyticsUserIdsSince(since, until);
+  const matched = database.countAnalyticsEventsSince("vacancy_matched", since, until);
+  const notified = database.countAnalyticsEventsSince("vacancy_notified", since, until);
+  const feedOpened = database.countAnalyticsEventsSince("weekly_feed_opened", since, until);
+  const saved = database.countAnalyticsStatusChangesSince("saved", since, until);
+  const applied = database.countAnalyticsEventsSince("vacancy_application_created", since, until);
+  const hidden = database.countAnalyticsStatusChangesSince("hidden", since, until);
 
   const lines: string[] = [
     "📊 Отчёт за 7 дней",
