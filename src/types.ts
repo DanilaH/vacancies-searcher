@@ -672,6 +672,33 @@ export interface RejectedMatchAuditRecord {
   verdict: string | null;
 }
 
+export interface RejectedAuditVacancyRecord {
+  id: number;
+  userId: string;
+  vacancyId: number;
+  resolution: string;
+  score: number | null;
+  reason: string | null;
+  decidedAt: string;
+  reviewedAt: string | null;
+  verdict: string | null;
+  sourceName: SourceName;
+  sourceChannel: string;
+  sourceMessageId: string;
+  messageDate: string;
+  title: string;
+  text: string;
+  normalizedText: string;
+  url: string;
+  canonicalUrl: string | null;
+  fingerprint: string;
+  matchSummary: string;
+  matchedKeywords: string[];
+  contacts: ExtractedContact[];
+  sentToOwnerAt: string | null;
+  createdAt: string;
+}
+
 export interface UserVacancyHiddenReasonRecord {
   userId: string;
   vacancyId: number;

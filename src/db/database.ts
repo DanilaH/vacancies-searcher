@@ -36,6 +36,7 @@ import {
   MonitoredChannel,
   MonitoredChannelPage,
   OnboardingStep,
+  RejectedAuditVacancyRecord,
   RejectedMatchAuditRecord,
   RuntimeSettingKey,
   SearchProfileWeeklyStats,
@@ -1396,6 +1397,95 @@ export class VacancyDatabase {
       )
       .get(userId) as { cnt: number };
     return row.cnt;
+  }
+
+  getOldestUnreviewedAuditWithVacancy(
+    userId: string
+  ): RejectedAuditVacancyRecord | null {
+    const row = this.getDb()
+      .prepare(
+        `SELECT
+          a.user_id, a.vacancy_id, a.resolution, a.score, a.reason,
+          a.decided_at, a.reviewed_at, a.verdict,
+          v.id, v.source_name, v.source_channel, v.source_message_id,
+          v.message_date, v.title, v.text, v.normalized_text, v.url,
+          v.canonical_url, v.fingerprint, v.score AS vacancy_score,
+          v.match_summary, v.matched_keywords_json, v.contacts_json,
+          v.sent_to_owner_at, v.created_at
+        FROM rejected_match_audit a
+        INNER JOIN vacancies v ON v.id = a.vacancy_id
+        WHERE a.user_id = ? AND a.reviewed_at IS NULL
+        ORDER BY a.decided_at ASC
+        LIMIT 1`
+      )
+      .get(userId) as {
+        user_id: string;
+        vacancy_id: number;
+        resolution: string;
+        score: number | null;
+        reason: string | null;
+        decided_at: string;
+        reviewed_at: string | null;
+        verdict: string | null;
+        id: number;
+        source_name: string;
+        source_channel: string;
+        source_message_id: string;
+        message_date: string;
+        title: string;
+        text: string;
+        normalized_text: string;
+        url: string;
+        canonical_url: string | null;
+        fingerprint: string;
+        vacancy_score: number;
+        match_summary: string;
+        matched_keywords_json: string;
+        contacts_json: string;
+        sent_to_owner_at: string | null;
+        created_at: string;
+      } | undefined;
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      vacancyId: row.vacancy_id,
+      resolution: row.resolution,
+      score: row.score,
+      reason: row.reason,
+      decidedAt: row.decided_at,
+      reviewedAt: row.reviewed_at,
+      verdict: row.verdict,
+      id: row.id,
+      sourceName: row.source_name as SourceName,
+      sourceChannel: row.source_channel,
+      sourceMessageId: row.source_message_id,
+      messageDate: row.message_date,
+      title: row.title,
+      text: row.text,
+      normalizedText: row.normalized_text,
+      url: row.url,
+      canonicalUrl: row.canonical_url,
+      fingerprint: row.fingerprint,
+      matchSummary: row.match_summary,
+      matchedKeywords: JSON.parse(row.matched_keywords_json),
+      contacts: JSON.parse(row.contacts_json),
+      sentToOwnerAt: row.sent_to_owner_at,
+      createdAt: row.created_at
+    };
+  }
+
+  setAuditVerdict(userId: string, vacancyId: number, verdict: string): boolean {
+    if (verdict !== "missed_relevant" && verdict !== "correct_rejection") {
+      throw new Error(`Invalid audit verdict: ${verdict}`);
+    }
+    const result = this.getDb()
+      .prepare(
+        `UPDATE rejected_match_audit
+         SET verdict = ?, reviewed_at = ?
+         WHERE user_id = ? AND vacancy_id = ? AND reviewed_at IS NULL`
+      )
+      .run(verdict, new Date().toISOString(), userId, vacancyId);
+    return result.changes > 0;
   }
 
   getRejectedMatchAudit(userId: string, vacancyId: number): RejectedMatchAuditRecord | null {

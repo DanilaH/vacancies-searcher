@@ -85,12 +85,14 @@ Pending because generic parser did not confidently parse the sample:
 - `rabota.sber.ru`
 - `youngjunior.ru`
 
-- Rejected match audit table (`rejected_match_audit`) stores a limited sample (max 500 unverified per owner) of vacancies that the matcher checked for the owner but rejected. Recording happens in both `UserVacancyRematcher.rebuildForUser` and `VacancyIngestor.matchVacancyForEligibleUsers` (live ingestion) via the shared helper `trySaveRejectedAudit` in `src/services/rejectedMatchAuditService.ts`. No Telegram command or UI yet.
+- Rejected match audit table (`rejected_match_audit`) stores a limited sample (max 500 unverified per owner) of vacancies that the matcher checked for the owner but rejected. Recording happens in both `UserVacancyRematcher.rebuildForUser` and `VacancyIngestor.matchVacancyForEligibleUsers` (live ingestion) via the shared helper `trySaveRejectedAudit` in `src/services/rejectedMatchAuditService.ts`. The `/qualityaudit` owner command provides the review UI: shows unreviewed records one-by-one with inline verdict buttons (`✅ Подходит мне` / `❌ Не подходит`), atomically updates the verdict, disables buttons after review, and loads the next record or reports completion.
 
 ## Verification Status
 
 Known from recent work:
 
+- Full suite passed with 521 tests after `/qualityaudit` command (`npm test`).
+- `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed clean.
 - Full suite passed with 292 tests after applied workflow MVP (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after applied workflow MVP.
 - Focused applied workflow checks passed: `node --import tsx --test tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts tests/botUsers.test.ts tests/inputFlowsRateLimit.test.ts` and `node --import tsx --test tests/userVacancyStatus.test.ts tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts`.
@@ -146,29 +148,9 @@ npx tsc -p tsconfig.json --pretty false
 
 ## Git / Workspace Notes
 
-- `git status --short` currently fails with `fatal: not a git repository`.
-- Treat the current workspace files as source of truth.
-- Because Git metadata is unavailable, exact uncommitted file list cannot be produced from Git.
-
-Known recent local code areas that may be uncommitted in this workspace:
-
-- `src/services/externalVacancyEnricher.ts`
-- `src/services/trustedVacancyServices.ts`
-- `src/services/vacancyIngestor.ts`
-- `src/services/telegramMultiVacancySplitter.ts`
-- `src/db/schema.ts`
-- `src/db/database.ts`
-- `src/types.ts`
-- `src/services/applicationFollowUpScheduler.ts`
-- `src/services/applicationFollowUpSchedule.ts`
-- `src/bot/createBot.ts`
-- `src/bot/keyboards.ts`
-- `src/bot/formatters.ts`
-- `src/bot/inputFlows.ts`
-- `src/bot/userPanels.ts`
-- `src/scripts/repair-multi-vacancy-posts.ts`
-- trusted-service and multi-vacancy tests
-- README/product docs
+- Git metadata is available; `feat/quality-audit-review` is an active branch pushed to origin.
+- All changes from the `/qualityaudit` command work are committed and pushed.
+- PR #16 is open: `feat/quality-audit-review` → `master`.
 
 ## Known Problems
 

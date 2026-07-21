@@ -435,6 +435,7 @@ AUTOMATIC_BACKUP_RETENTION_DAYS=14
 - `/admin` opens the admin panel for `owner/admin`
 - `/backup` is visible only to `owner` and sends a fresh SQLite backup snapshot
 - `/qualityreport` is visible only to `owner` and shows match quality stats (last 30 days)
+- `/qualityaudit` is visible only to `owner` and lets you manually review rejected-match audit records, marking them as `missed_relevant` or `correct_rejection`
 
 ## Data safety notes
 
