@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
@@ -468,6 +468,63 @@ test("hidden vacancy receipt offers restore and contextual exit", () => {
     "vacancy:status:42:hidden:compact:p7.6",
     "week:profile:7:6"
   ]);
+});
+
+test("weekly period buttons show correct Cyrillic labels without mojibake", () => {
+  const keyboard = createWeeklyKeyboard(createWeeklyPage(), true);
+  const texts = rows(keyboard).flat().map((button) => button.text);
+
+  assert.ok(texts.some((t) => t.includes("7 дн.")), "должен содержать '7 дн.'");
+  assert.ok(texts.some((t) => t.includes("14 дн.")), "должен содержать '14 дн.'");
+  assert.ok(texts.some((t) => t.includes("30 дн.")), "должен содержать '30 дн.'");
+  assert.ok(!texts.some((t) => t.includes("â") || t.includes("œ") || t.includes("Ð")), "нет mojibake-символов");
+});
+
+test("weekly period buttons add checkmark only for selected window", () => {
+  const keyboard7 = createWeeklyKeyboard(createWeeklyPage(), true, undefined, 7);
+  const texts7 = rows(keyboard7).flat().map((button) => button.text);
+  assert.ok(texts7.some((t) => t === "✅ 7 дн."));
+  assert.ok(texts7.some((t) => t === "14 дн."));
+  assert.ok(texts7.some((t) => t === "30 дн."));
+
+  const keyboard14 = createWeeklyKeyboard(createWeeklyPage(), true, 5, 14);
+  const texts14 = rows(keyboard14).flat().map((button) => button.text);
+  assert.ok(texts14.some((t) => t === "7 дн."));
+  assert.ok(texts14.some((t) => t === "✅ 14 дн."));
+  assert.ok(texts14.some((t) => t === "30 дн."));
+
+  const keyboard30 = createWeeklyKeyboard(createWeeklyPage(), true, 5, 30);
+  const texts30 = rows(keyboard30).flat().map((button) => button.text);
+  assert.ok(texts30.some((t) => t === "7 дн."));
+  assert.ok(texts30.some((t) => t === "14 дн."));
+  assert.ok(texts30.some((t) => t === "✅ 30 дн."));
+});
+
+test("weekly period buttons preserve callback data", () => {
+  const keyboard = createWeeklyKeyboard(createWeeklyPage(), true, 5);
+  const data = callbacks(keyboard);
+
+  assert.ok(data.includes("week:profile:5:14:0"), "callback for 14-day window");
+  assert.ok(data.includes("week:profile:5:30:0"), "callback for 30-day window");
+  assert.ok(data.includes("week:profile:5:7:0") || data.includes("week:profile:5:0"), "callback for 7-day window (default)");
+});
+
+test("weekly zero-state period buttons show correct Cyrillic labels without mojibake", () => {
+  const keyboard = createWeeklyZeroStateKeyboard(createWeeklyPage({ items: [], total: 0 }), 5);
+  const texts = rows(keyboard).flat().map((button) => button.text);
+
+  assert.ok(texts.some((t) => t.includes("7 дн.")), "должен содержать '7 дн.'");
+  assert.ok(texts.some((t) => t.includes("14 дн.")), "должен содержать '14 дн.'");
+  assert.ok(texts.some((t) => t.includes("30 дн.")), "должен содержать '30 дн.'");
+  assert.ok(!texts.some((t) => t.includes("â") || t.includes("œ") || t.includes("Ð")), "нет mojibake-символов");
+});
+
+test("weekly zero-state period buttons add checkmark only for selected window", () => {
+  const keyboard14 = createWeeklyZeroStateKeyboard(createWeeklyPage({ items: [], total: 0 }), 5, 1, 14);
+  const texts14 = rows(keyboard14).flat().map((button) => button.text);
+  assert.ok(texts14.some((t) => t === "7 дн."));
+  assert.ok(texts14.some((t) => t === "✅ 14 дн."));
+  assert.ok(texts14.some((t) => t === "30 дн."));
 });
 
 test("diagnostics suggestion keyboard links to filters and suppression actions", () => {
