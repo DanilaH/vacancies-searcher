@@ -16,6 +16,5 @@ Current branch: `feat/rejected-match-audit-sample` (PR #15)
 
 ## Next Possible Steps
 
-1. Create Telegram command for owner to browse/verify audit records
+1. Create Telegram command `/qualityaudit` for owner to browse/verify audit records
 2. Calculate false negative rate from reviewed audit records
-3. Wire into `VacancyIngestor.matchVacancyForEligibleUsers` for real-time ingestion path
