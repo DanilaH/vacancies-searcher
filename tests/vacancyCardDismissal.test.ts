@@ -39,6 +39,6 @@ test("dismissHiddenVacancyCardMessage falls back to a compact hidden state", asy
     }
   }, fallbackKeyboard);
 
-  assert.equal(fallbackText, "🙈 Вакансия скрыта.");
+  assert.equal(fallbackText, "👎 Больше не показываю эту вакансию.");
   assert.deepEqual(fallbackOptions, { reply_markup: fallbackKeyboard });
 });

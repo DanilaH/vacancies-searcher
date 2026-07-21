@@ -90,7 +90,7 @@ export function buildStatusActionText(status: Exclude<VacancyUserStatus, "inbox"
     return cleared ? "↩️ Отметка снята." : "✅ Отметил как отклик.";
   }
 
-  return cleared ? "👁️ Вакансия возвращена в поток." : "🙈 Вакансия скрыта.";
+  return cleared ? "↩️ Вакансия возвращена в подборку." : "👎 Больше не показываю эту вакансию.";
 }
 
 export interface UserPanels {

@@ -257,8 +257,34 @@ test("vacancy action keyboard preserves origin suffix", () => {
 
 test("hidden vacancy card offers restore instead of deleting again", () => {
   const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({ userStatus: "hidden" }), true);
+  const btnLabels = labels(keyboard);
+  const data = callbacks(keyboard);
 
-  assert.ok(callbacks(keyboard).includes("vacancy:status:42:hidden:compact"));
+  assert.ok(btnLabels.includes("↩️ Вернуть в подборку"));
+  assert.ok(data.includes("vacancy:status:42:hidden:compact"));
+  assert.ok(!btnLabels.includes("👎 Не подходит"));
+});
+
+test("vacancy action card shows negative feedback button for unhidden", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy(), true, "compact");
+  const btnLabels = labels(keyboard);
+  const data = callbacks(keyboard);
+
+  assert.ok(btnLabels.includes("👎 Не подходит"));
+  assert.ok(data.includes("vacancy:status:42:hidden:compact"));
+  assert.ok(btnLabels.includes("💾 Сохранить"));
+  assert.ok(btnLabels.includes("✅ Откликнулся"));
+  assert.ok(!btnLabels.includes("↩️ Вернуть в подборку"));
+  assert.ok(!btnLabels.includes("🙈 Скрыть"));
+  assert.ok(!btnLabels.includes("🙈 Вернуть в поток"));
+});
+
+test("hidden vacancy receipt keyboard uses unified restore label", () => {
+  const noOrigin = labels(createHiddenVacancyReceiptKeyboard(42));
+  assert.ok(noOrigin.includes("↩️ Вернуть в подборку"));
+
+  const withOrigin = labels(createHiddenVacancyReceiptKeyboard(42, { offset: 6, profileId: 7 }));
+  assert.ok(withOrigin.includes("↩️ Вернуть в подборку"));
 });
 
 test("applied vacancy uses application follow-up prompt instead of ordinary reminder", () => {

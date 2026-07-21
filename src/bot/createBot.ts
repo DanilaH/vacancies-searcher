@@ -124,7 +124,7 @@ export async function dismissHiddenVacancyCardMessage(
         await ctx.deleteMessage();
     }
     catch {
-        await ctx.editMessageText("🙈 Вакансия скрыта.", { reply_markup: fallbackReplyMarkup });
+        await ctx.editMessageText("👎 Больше не показываю эту вакансию.", { reply_markup: fallbackReplyMarkup });
     }
 }
 
@@ -1728,7 +1728,7 @@ export function createBotController(
             if (!restoredWeekly) {
                 await dismissHiddenVacancyCardMessage(ctx, keyboards.createHiddenVacancyReceiptKeyboard(vacancyId, origin ?? undefined));
             }
-            await ctx.reply("🙈 Вакансия скрыта.\nПочему не подходит?", {
+            await ctx.reply("👎 Больше не показываю эту вакансию.\nПочему не подходит?", {
                 reply_markup: keyboards.createHiddenReasonKeyboard(vacancyId, origin)
             });
             await analytics.capture({
@@ -1792,7 +1792,7 @@ export function createBotController(
             return;
         }
         await ctx.answerCallbackQuery({ text: "Ок, без причины." });
-        await ctx.editMessageText("🙈 Вакансия скрыта.", {
+        await ctx.editMessageText("👎 Больше не показываю эту вакансию.", {
             reply_markup: origin ? undefined : keyboards.createHiddenVacancyReceiptKeyboard(vacancyId)
         });
         await analytics.capture({

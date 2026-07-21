@@ -214,7 +214,7 @@ export function createWeeklyReturnKeyboard(origin?: VacancyCardOrigin): InlineKe
 }
 
 export function createHiddenVacancyReceiptKeyboard(vacancyId: number, origin?: VacancyCardOrigin): InlineKeyboard {
-  const keyboard = new InlineKeyboard().text("↩️ Вернуть", appendVacancyCardOrigin(`vacancy:status:${vacancyId}:hidden:compact`, origin));
+  const keyboard = new InlineKeyboard().text("↩️ Вернуть в подборку", appendVacancyCardOrigin(`vacancy:status:${vacancyId}:hidden:compact`, origin));
 
   return origin
     ? keyboard.text("↩️ К выдаче", weeklyCallbackForVacancyCardOrigin(origin))
@@ -240,7 +240,7 @@ export function createHiddenReasonKeyboard(vacancyId: number, origin?: VacancyCa
   if (!origin) {
     keyboard
       .row()
-      .text("↩️ Вернуть", `vacancy:status:${vacancyId}:hidden:compact`)
+      .text("↩️ Вернуть в подборку", `vacancy:status:${vacancyId}:hidden:compact`)
       .text("🏠 Меню", "menu:home");
   }
 
@@ -311,7 +311,7 @@ export function createVacancyKeyboardWithActions(
 
     keyboard
       .row()
-      .text(vacancy.userStatus === "hidden" ? "🙈 Вернуть в поток" : "🙈 Скрыть", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
+      .text(vacancy.userStatus === "hidden" ? "↩️ Вернуть в подборку" : "👎 Не подходит", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
   }
 
   return appendWeeklyReturn(keyboard, origin);
