@@ -47,19 +47,33 @@ function makeFilterResult(): FilterResult {
 
 let _msgSeq = 0;
 
+const NOW_REF = new Date("2026-07-22T00:00:00.000Z");
+
+function nowRef(): Date {
+  return new Date(NOW_REF.getTime());
+}
+
+function daysAgo(n: number): string {
+  return new Date(NOW_REF.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function refIso(): string {
+  return NOW_REF.toISOString();
+}
+
 function insertVacancy(
   database: VacancyDatabase,
   source: SourceName,
   channel: string,
   text: string
 ): number {
-  const messageId = `mqr-${process.pid}-${Date.now()}-${++_msgSeq}`;
+  const messageId = `mqr-${process.pid}-${++_msgSeq}`;
   const result = database.recordMessage(
     {
       source,
       channel,
       messageId,
-      date: new Date().toISOString(),
+      date: refIso(),
       text,
       url: `https://t.me/${channel}/${messageId}`
     },
@@ -77,7 +91,7 @@ function createMatch(
   vacancyId: number,
   createdAt?: string
 ): void {
-  const ts = createdAt ?? new Date().toISOString();
+  const ts = createdAt ?? daysAgo(1);
   const conn = new BetterSqlite3(config.databasePath);
   conn.prepare(
     `INSERT INTO user_vacancy_matches (user_id, vacancy_id, score, match_summary, matched_keywords_json, created_at, updated_at)
@@ -88,16 +102,6 @@ function createMatch(
 
 function getDb(database: VacancyDatabase): ReturnType<typeof database["getDb"]> {
   return (database as unknown as { getDb(): ReturnType<typeof database["getDb"]> }).getDb();
-}
-
-function daysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
-}
-
-const NOW_REF = new Date("2026-07-22T00:00:00.000Z");
-
-function nowRef(): Date {
-  return new Date(NOW_REF.getTime());
 }
 
 // ─── Audit helpers ────────────────────────────────────────────────────────────
@@ -598,6 +602,48 @@ test("audit: exact disclaimer text", () => {
 
   const report = buildMatchingQualityReport(database, "777", 30, nowRef());
   assert.ok(report.includes("Метрика рассчитана только по вручную проверенной audit-выборке и не является полным false-negative rate."));
+  database.close();
+});
+
+test("regression: report is deterministic regardless of real system clock", () => {
+  const { config, database } = createFixture();
+  setupOwner(database);
+
+  // Use a now far in the past to prove the test doesn't depend on Date.now()
+  const farPast = new Date("2020-01-15T12:00:00.000Z");
+
+  // All data relative to that farPast now
+  function pastDaysAgo(n: number): string {
+    return new Date(farPast.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  const v1 = insertVacancy(database, "telegram_web_preview", "ch1", "past a");
+  const v2 = insertVacancy(database, "telegram_web_preview", "ch1", "past b");
+  const v3 = insertVacancy(database, "telegram_web_preview", "ch1", "past c");
+
+  createMatch(database, config, "777", v1, pastDaysAgo(5));
+  createMatch(database, config, "777", v2, pastDaysAgo(4));
+  createMatch(database, config, "777", v3, pastDaysAgo(3));
+  database.upsertVacancyRelevanceFeedback("777", v1, "relevant");
+  database.upsertVacancyRelevanceFeedback("777", v2, "not_relevant");
+
+  insertAuditCandidate(database, "777", v1, pastDaysAgo(2), 10, "reason1", "missed_relevant");
+  insertAuditCandidate(database, "777", v2, pastDaysAgo(1), 20, "reason2", "correct_rejection");
+
+  const report = buildMatchingQualityReport(database, "777", 30, farPast);
+
+  // Matching block
+  assert.ok(report.includes("Всего подобрано вакансий: 3"));
+  assert.ok(report.includes("Вакансий с обратной связью: 2"));
+  assert.ok(report.includes("Из них релевантных: 1"));
+  assert.ok(report.includes("Из них нерелевантных: 1"));
+
+  // Audit block
+  assert.ok(report.includes("Сохранено кандидатов: 2"));
+  assert.ok(report.includes("Проверено владельцем: 2"));
+  assert.ok(report.includes("Пропущено релевантных: 1"));
+  assert.ok(report.includes("Корректно отклонено: 1"));
+  assert.ok(report.includes("Доля пропусков среди проверенных: 50%"));
   database.close();
 });
 
