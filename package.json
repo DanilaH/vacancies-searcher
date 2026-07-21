@@ -18,7 +18,7 @@
     "local:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/install-task.ps1",
     "local:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/status.ps1",
     "local:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/uninstall-task.ps1",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
