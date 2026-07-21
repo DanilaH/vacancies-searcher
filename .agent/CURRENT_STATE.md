@@ -44,6 +44,9 @@ Implemented and working at code level:
 - External enrichment from active trusted services.
 - Built-in specialized adapters for FindMyRemote, Teletype, Finder Work, and Telegraph.
 - Repair script for old multi-vacancy posts.
+- Owner-only `/channelreport` command showing per-source performance (vacancies, matches, saved, hidden, applications) over last 30 days.
+- Saved/hidden/applied metrics counted from `analytics_events` with `vacancy_status_changed` event via `json_extract` — each status transition is a separate event, providing reliable history.
+- Source labels use `@` prefix only for Telegram sources; others display as `channel (source)`.
 - Local analytics in SQLite and optional PostHog forwarding.
 - Automatic backup and technical data cleanup.
 
@@ -88,6 +91,14 @@ Pending because generic parser did not confidently parse the sample:
 ## Verification Status
 
 Known from recent work:
+
+- Full suite passed with 410 tests after `/channelreport` handler extraction and real-handler test (`npm test`).
+- `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after handler extraction.
+- `/channelreport` handler extracted to `src/bot/channelReportHandler.ts` — bot registration in `createBot.ts` delegates to the same exported function used by the test.
+- Handler test uses the real `handleChannelReportCommand` function with a spy on `database.listChannelPerformance`; owner gets the report, admin/member are denied, `listChannelPerformance` is not called for non-owners.
+- Markdown underscores removed from the channel report footnote (no `parse_mode` configured).
+- Focused channel report check: `node --import tsx --test tests/channelReport.test.ts` (22 tests).
+- **Vacancy Relevance Feedback (feat/vacancy-relevance-feedback)**: New `vacancy_relevance_feedback` DB table with `PRIMARY KEY(user_id, vacancy_id)`, `value IN ('relevant','not_relevant')`. "👍 Релевантна" button appears on vacancy action cards when not hidden; pressing it stores positive feedback without changing vacancy status. "👎 Не подходит" doubles as hidden-with-reason AND negative relevance feedback. Feedback can be changed; repeated same value is idempotent. Analytics event `vacancy_relevance_feedback` sends `vacancy_id`, `value`, `source_name`, `source_channel`. Restore from hidden does NOT create positive feedback; save/applied do NOT create relevance feedback. Handler tested via real `handleUpdate` with callback query. Full suite: 423 tests, all passing.
 
 - Full suite passed with 292 tests after applied workflow MVP (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after applied workflow MVP.
@@ -144,29 +155,8 @@ npx tsc -p tsconfig.json --pretty false
 
 ## Git / Workspace Notes
 
-- `git status --short` currently fails with `fatal: not a git repository`.
-- Treat the current workspace files as source of truth.
-- Because Git metadata is unavailable, exact uncommitted file list cannot be produced from Git.
-
-Known recent local code areas that may be uncommitted in this workspace:
-
-- `src/services/externalVacancyEnricher.ts`
-- `src/services/trustedVacancyServices.ts`
-- `src/services/vacancyIngestor.ts`
-- `src/services/telegramMultiVacancySplitter.ts`
-- `src/db/schema.ts`
-- `src/db/database.ts`
-- `src/types.ts`
-- `src/services/applicationFollowUpScheduler.ts`
-- `src/services/applicationFollowUpSchedule.ts`
-- `src/bot/createBot.ts`
-- `src/bot/keyboards.ts`
-- `src/bot/formatters.ts`
-- `src/bot/inputFlows.ts`
-- `src/bot/userPanels.ts`
-- `src/scripts/repair-multi-vacancy-posts.ts`
-- trusted-service and multi-vacancy tests
-- README/product docs
+- Git operations work on the `feat/channel-performance-report` branch.
+- All changes from the current session are committed and pushed.
 
 ## Known Problems
 

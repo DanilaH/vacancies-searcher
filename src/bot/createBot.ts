@@ -1774,6 +1774,20 @@ export function createBotController(
             text: buildStatusActionText(requestedStatus, nextStatus === "inbox")
         });
         if (nextStatus === "hidden") {
+            database.upsertVacancyRelevanceFeedback(currentUserId, vacancyId, "not_relevant");
+            if (vacancy) {
+                await analytics.capture({
+                    eventName: "vacancy_relevance_feedback",
+                    userId: currentUserId,
+                    properties: {
+                        ...buildUserAnalyticsProperties(currentUserId),
+                        vacancy_id: vacancyId,
+                        value: "not_relevant",
+                        source_name: vacancy.sourceName,
+                        source_channel: vacancy.sourceChannel
+                    }
+                });
+            }
             const restoredWeekly = origin
                 ? await showWeeklyPageForOrigin(ctx, currentUserId, origin, "edit")
                 : false;
@@ -1805,6 +1819,52 @@ export function createBotController(
         await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
             reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin)
         });
+    });
+    bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
+        const currentUserId = getCurrentUserId(ctx);
+        const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
+        const value = ctx.match?.[2] as "relevant" | undefined;
+        const view = parseVacancyNotificationView(ctx.match?.[3]);
+        const origin = vacancyCardOrigin.parseVacancyCardOrigin(ctx.match?.[4]);
+        if (!currentUserId || !vacancyId || !value) {
+            await ctx.answerCallbackQuery({ text: "⚠️ Не удалось сохранить оценку." });
+            return;
+        }
+        const existing = database.getVacancyRelevanceFeedback(currentUserId, vacancyId);
+        if (existing === value) {
+            await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
+            return;
+        }
+        database.upsertVacancyRelevanceFeedback(currentUserId, vacancyId, value);
+        const vacancy = database.getVacancy(vacancyId);
+        if (vacancy) {
+            await analytics.capture({
+                eventName: "vacancy_relevance_feedback",
+                userId: currentUserId,
+                properties: {
+                    ...buildUserAnalyticsProperties(currentUserId),
+                    vacancy_id: vacancyId,
+                    value,
+                    source_name: vacancy.sourceName,
+                    source_channel: vacancy.sourceChannel
+                }
+            });
+        }
+        await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
+        const vacancyRecord = buildVacancyMessageRecord(currentUserId, vacancyId);
+        if (!vacancyRecord) {
+            return;
+        }
+        const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
+        try {
+            await ctx.editMessageReplyMarkup({
+                reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, "relevant")
+            });
+        } catch {
+            await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
+                reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, "relevant")
+            });
+        }
     });
     bot.callbackQuery(/^hidden_reason:set:(\d+):([a-z_]+)(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
         const currentUserId = getCurrentUserId(ctx);

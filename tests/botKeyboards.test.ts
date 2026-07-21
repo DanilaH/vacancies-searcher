@@ -251,6 +251,7 @@ test("vacancy action keyboard preserves origin suffix", () => {
   assert.ok(data.includes("vacancy:remind:42:compact:p7.6"));
   assert.ok(data.includes("vacancy:status:42:saved:compact:p7.6"));
   assert.ok(data.includes("vacancy:status:42:applied:compact:p7.6"));
+  assert.ok(data.includes("vacancy:relevance:42:relevant:compact:p7.6"));
   assert.ok(data.includes("vacancy:status:42:hidden:compact:p7.6"));
   assert.ok(data.includes("week:profile:7:6"));
 });
@@ -263,6 +264,23 @@ test("hidden vacancy card offers restore instead of deleting again", () => {
   assert.ok(btnLabels.includes("↩️ Вернуть в подборку"));
   assert.ok(data.includes("vacancy:status:42:hidden:compact"));
   assert.ok(!btnLabels.includes("👎 Не подходит"));
+  assert.ok(!btnLabels.includes("👍 Релевантна"));
+});
+
+test("vacancy action keyboard shows relevant button with checkmark when value is relevant", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy(), true, "compact", undefined, "relevant");
+  const btnLabels = labels(keyboard);
+
+  assert.ok(btnLabels.includes("👍 Релевантна ✅"));
+  assert.ok(btnLabels.includes("👎 Не подходит"));
+});
+
+test("vacancy action keyboard shows relevant button without checkmark when no relevance value", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy(), true, "compact");
+  const btnLabels = labels(keyboard);
+
+  assert.ok(btnLabels.includes("👍 Релевантна"));
+  assert.ok(!btnLabels.includes("✅"));
 });
 
 test("vacancy action card shows negative feedback button for unhidden", () => {
@@ -270,6 +288,8 @@ test("vacancy action card shows negative feedback button for unhidden", () => {
   const btnLabels = labels(keyboard);
   const data = callbacks(keyboard);
 
+  assert.ok(btnLabels.includes("👍 Релевантна"));
+  assert.ok(data.includes("vacancy:relevance:42:relevant:compact"));
   assert.ok(btnLabels.includes("👎 Не подходит"));
   assert.ok(data.includes("vacancy:status:42:hidden:compact"));
   assert.ok(btnLabels.includes("💾 Сохранить"));

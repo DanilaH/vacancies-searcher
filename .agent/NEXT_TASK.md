@@ -1,38 +1,32 @@
 # Next Task
 
-Active task file:
+Branch `feat/vacancy-relevance-feedback` is ready for PR.
 
-- `docs/tasks/TASK-001-trusted-service-coverage.md`
+## What's Done
 
-## Goal
+- Story A (DB): `vacancy_relevance_feedback` table, migration, `upsert/get/clear` methods.
+- Story B (Keyboard): `createVacancyKeyboardWithActions` accepts optional `relevanceValue`, shows "👍 Релевантна" button with `✅` checkmark when value is `relevant`.
+- Story C (Handler): hide handler records `not_relevance` + analytics; new callback `vacancy:relevance:{id}:relevant:{view}:{origin}` stores positive feedback, edits keyboard with checkmark.
+- Story D (Tests): 11 new tests (9 DB-level + handler test via real `handleUpdate`), existing keyboard tests updated → 423 total.
 
-Continue trusted-service coverage for pending valid vacancy sites without broadening generic trust too far.
+## Verification (all passed)
 
-## Workflow
+- `npx tsc -p tsconfig.json --pretty false`
+- `npm test` (423/423)
+- `npm run build`
 
-Use the new PM/Architect workflow:
+## Next Action
 
-1. Read `.agent/HANDOFF.md`.
-2. Read `docs/STATUS.md`.
-3. Read `docs/ROADMAP.md`.
-4. Read the active task file.
-5. Execute only the scope in that task file.
-6. Stop at the review gate when complete.
+Open a PR against `master` — don't merge. Recommended PR title: `feat: add vacancy relevance feedback (👍/👎 buttons)`.
 
 ## Prompt For Executor
 
 ```text
-You are continuing work on c:\1Projects\job-tg-bot.
+You are on branch feat/vacancy-relevance-feedback. The feature is fully implemented and verified:
+- Vacancy action cards now have 👍 Релевантна / 👎 Не подходит buttons
+- "👎 Не подходит" doubles as hide + negative relevance feedback
+- Positive feedback does NOT change vacancy status
+- DB, API, keyboard, handler, analytics, and 11 new tests are complete
 
-First read:
-- .agent/HANDOFF.md
-- .agent/CURRENT_STATE.md
-- .agent/DECISIONS.md
-- docs/STATUS.md
-- docs/ROADMAP.md
-- docs/tasks/TASK-001-trusted-service-coverage.md
-
-Implement only TASK-001. Preserve trusted-service security invariants: exact-host trust, safe URL shapes, no redirects, DNS/private-IP checks, timeouts, response-size limits, definitive non-vacancy rejection, and temporary-failure fallback to Telegram-only ingestion.
-
-Do not change Telegram callbacks, weekly UI, source polling, .env, or unrelated workflows. Add focused tests and run the checks listed in the task file. Stop at the review gate.
+All checks pass (tsc, build, npm test). Open a PR against master with title "feat: add vacancy relevance feedback (👍/👎 buttons)". Do NOT merge.
 ```

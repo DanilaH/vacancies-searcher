@@ -61,6 +61,8 @@ import {
   UserWeeklyVacancyPage,
   VacancyDuplicatePost,
   VacancyDuplicatePostPage,
+  VacancyRelevanceFeedbackRecord,
+  VacancyRelevanceValue,
   VacancyApplicationFollowUpRecord,
   VacancyApplicationRecord,
   VacancyLanguageMode,
@@ -1238,6 +1240,55 @@ export class VacancyDatabase {
   clearUserVacancyStatus(userId: string, vacancyId: number): void {
     this.getDb()
       .prepare("DELETE FROM user_vacancy_states WHERE user_id = ? AND vacancy_id = ?")
+      .run(userId, vacancyId);
+  }
+
+  upsertVacancyRelevanceFeedback(
+    userId: string,
+    vacancyId: number,
+    value: VacancyRelevanceValue
+  ): VacancyRelevanceFeedbackRecord {
+    const timestamp = nowIso();
+    const row = this.getDb()
+      .prepare(
+        `
+          INSERT INTO vacancy_relevance_feedback (user_id, vacancy_id, value, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_id, vacancy_id)
+          DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+          RETURNING user_id, vacancy_id, value, created_at, updated_at
+        `
+      )
+      .get(userId, vacancyId, value, timestamp, timestamp) as {
+        user_id: string;
+        vacancy_id: number;
+        value: string;
+        created_at: string;
+        updated_at: string;
+      };
+    return {
+      userId: row.user_id,
+      vacancyId: row.vacancy_id,
+      value: row.value as VacancyRelevanceValue,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  getVacancyRelevanceFeedback(userId: string, vacancyId: number): VacancyRelevanceValue | null {
+    const row = this.getDb()
+      .prepare(
+        "SELECT value FROM vacancy_relevance_feedback WHERE user_id = ? AND vacancy_id = ? LIMIT 1"
+      )
+      .get(userId, vacancyId) as { value: string } | undefined;
+    if (!row) return null;
+    const v = row.value;
+    return v === "relevant" || v === "not_relevant" ? v : null;
+  }
+
+  clearVacancyRelevanceFeedback(userId: string, vacancyId: number): void {
+    this.getDb()
+      .prepare("DELETE FROM vacancy_relevance_feedback WHERE user_id = ? AND vacancy_id = ?")
       .run(userId, vacancyId);
   }
 
