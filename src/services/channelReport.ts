@@ -27,7 +27,7 @@ export function buildChannelReport(database: VacancyDatabase, now = new Date()):
     lines.push("");
   }
 
-  lines.push("_Сохранено / Не подошло / Откликов — события за период (история переходов)_");
+  lines.push("Сохранено / Не подошло / Откликов — события за период (история переходов)");
 
   return lines.join("\n");
 }

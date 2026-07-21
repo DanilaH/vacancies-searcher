@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as grammy from "grammy";
 
 import { VacancyDatabase } from "../src/db/database";
 import { buildChannelReport } from "../src/services/channelReport";
+import { handleChannelReportCommand } from "../src/bot/channelReportHandler";
 import { createTestConfig } from "./helpers";
 
 import type { FilterResult, SourceName } from "../src/types";
@@ -321,46 +323,78 @@ test("report header says 30 days and includes semantics footnote", () => {
 test("channelreport handler sends report to owner, denies admin and member", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
-  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text o1", daysOffset(FIXED_NOW, -1));
-  const now = new Date(FIXED_NOW);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text o1", daysOffset(FIXED_NOW, -1));
+  insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
 
-  let repliedText: string | undefined;
-  let buildReportCalled = false;
-
-  const trackedBuildReport = (db: VacancyDatabase, n?: Date) => {
-    buildReportCalled = true;
-    return buildChannelReport(db, n);
-  };
-
-  const handler = async (ctxFromId: number): Promise<void> => {
-    if (!database.hasOwnerAccess(ctxFromId)) {
-      repliedText = "🔒 Этот раздел недоступен.";
-      return;
+  const bot = new grammy.Bot("test:token", {
+    botInfo: {
+      id: 123456,
+      is_bot: true,
+      first_name: "TestBot",
+      username: "test_bot",
+      can_join_groups: false,
+      can_read_all_group_messages: false,
+      can_manage_bots: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: false,
+      allows_users_to_create_topics: false
     }
-    repliedText = trackedBuildReport(database, now);
-  };
+  });
 
-  repliedText = undefined;
-  buildReportCalled = false;
-  await handler(777);
-  assert.ok(buildReportCalled, "buildChannelReport must be called for owner");
-  const afterOwner = repliedText as string | undefined;
-  assert.ok(afterOwner?.includes("@ch1"), "owner must see source data");
-  assert.ok(afterOwner?.includes("Производительность источников"), "owner must see report");
+  let lastReplyText: string | undefined;
+  let listChannelPerformanceCallCount = 0;
+  const originalListChannelPerformance = database.listChannelPerformance.bind(database);
+  database.listChannelPerformance = ((since: string, until: string, limit: number) => {
+    listChannelPerformanceCallCount++;
+    return originalListChannelPerformance(since, until, limit);
+  }) as VacancyDatabase["listChannelPerformance"];
 
-  repliedText = undefined;
-  buildReportCalled = false;
-  await handler(888);
-  assert.equal(buildReportCalled, false, "buildChannelReport must NOT be called for admin");
-  const afterAdmin = repliedText as string | undefined;
-  assert.ok(afterAdmin?.includes("🔒"), "admin must be denied");
+  bot.api.config.use((prev, method, payload) => {
+    if (method === "sendMessage") {
+      lastReplyText = (payload as Record<string, unknown>).text as string | undefined;
+      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as any;
+    }
+    return prev(method, payload);
+  });
 
-  repliedText = undefined;
-  buildReportCalled = false;
-  await handler(999);
-  assert.equal(buildReportCalled, false, "buildChannelReport must NOT be called for member");
-  const afterMember = repliedText as string | undefined;
-  assert.ok(afterMember?.includes("🔒"), "member must be denied");
+  bot.command("channelreport", async (ctx) => {
+    await handleChannelReportCommand(ctx, database);
+  });
+
+  function makeUpdate(fromId: number, firstName: string) {
+    return {
+      update_id: fromId,
+      message: {
+        message_id: 1,
+        date: Math.floor(Date.now() / 1000),
+        text: "/channelreport",
+        chat: { id: fromId, type: "private" as const, first_name: firstName },
+        from: { id: fromId, is_bot: false, first_name: firstName, language_code: "en" },
+        entities: [{ offset: 0, length: 15, type: "bot_command" as const }]
+      }
+    };
+  }
+
+  lastReplyText = undefined;
+  listChannelPerformanceCallCount = 0;
+  await bot.handleUpdate(makeUpdate(777, "Owner"));
+  assert.equal(listChannelPerformanceCallCount, 1, "listChannelPerformance must be called for owner");
+  assert.ok((lastReplyText as string | undefined)?.includes("@ch1"), "owner must see source data");
+  assert.ok((lastReplyText as string | undefined)?.includes("Производительность источников"), "owner must see report header");
+
+  lastReplyText = undefined;
+  listChannelPerformanceCallCount = 0;
+  await bot.handleUpdate(makeUpdate(888, "Admin"));
+  assert.equal(listChannelPerformanceCallCount, 0, "listChannelPerformance must NOT be called for admin");
+  assert.ok((lastReplyText as string | undefined)?.includes("🔒"), "admin must be denied");
+
+  lastReplyText = undefined;
+  listChannelPerformanceCallCount = 0;
+  await bot.handleUpdate(makeUpdate(999, "Stranger"));
+  assert.equal(listChannelPerformanceCallCount, 0, "listChannelPerformance must NOT be called for member");
+  assert.ok((lastReplyText as string | undefined)?.includes("🔒"), "member must be denied");
 
   database.close();
 });

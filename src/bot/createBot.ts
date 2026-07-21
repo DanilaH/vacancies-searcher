@@ -33,7 +33,7 @@ import {
     parseHiddenVacancyReason
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
-import { buildChannelReport } from "../services/channelReport";
+import { handleChannelReportCommand } from "./channelReportHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -1295,16 +1295,7 @@ export function createBotController(
         }
     });
     bot.command("channelreport", async (ctx) => {
-        if (!(await ensureOwnerAccess(ctx))) {
-            return;
-        }
-        try {
-            const report = buildChannelReport(database);
-            await ctx.reply(report);
-        } catch (error) {
-            loggerModule.logger.error({ err: error }, "Failed to build channel performance report");
-            await ctx.reply("⚠️ Не удалось сформировать отчёт по источникам.");
-        }
+        await handleChannelReportCommand(ctx, database);
     });
     bot.callbackQuery(/^report:period:(\d+)$/, async (ctx) => {
         if (!(await ensureOwnerAccess(ctx))) {
