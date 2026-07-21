@@ -279,12 +279,34 @@ test("vacancy action card shows negative feedback button for unhidden", () => {
   assert.ok(!btnLabels.includes("🙈 Вернуть в поток"));
 });
 
-test("hidden vacancy receipt keyboard uses unified restore label", () => {
-  const noOrigin = labels(createHiddenVacancyReceiptKeyboard(42));
-  assert.ok(noOrigin.includes("↩️ Вернуть в подборку"));
+test("hidden vacancy receipt keyboard uses unified restore label and callback", () => {
+  const noOriginLabels = labels(createHiddenVacancyReceiptKeyboard(42));
+  const noOriginData = callbacks(createHiddenVacancyReceiptKeyboard(42));
+  assert.ok(noOriginLabels.includes("↩️ Вернуть в подборку"));
+  assert.ok(noOriginData.includes("vacancy:status:42:hidden:compact"));
 
-  const withOrigin = labels(createHiddenVacancyReceiptKeyboard(42, { offset: 6, profileId: 7 }));
-  assert.ok(withOrigin.includes("↩️ Вернуть в подборку"));
+  const withOriginLabels = labels(createHiddenVacancyReceiptKeyboard(42, { offset: 6, profileId: 7 }));
+  const withOriginData = callbacks(createHiddenVacancyReceiptKeyboard(42, { offset: 6, profileId: 7 }));
+  assert.ok(withOriginLabels.includes("↩️ Вернуть в подборку"));
+  assert.ok(withOriginData.includes("vacancy:status:42:hidden:compact:p7.6"));
+});
+
+test("hidden reason keyboard without origin keeps restore button and skip unchanged", () => {
+  const btnLabels = labels(createHiddenReasonKeyboard(42));
+  const data = callbacks(createHiddenReasonKeyboard(42));
+
+  assert.ok(btnLabels.includes("↩️ Вернуть в подборку"));
+  assert.ok(data.includes("vacancy:status:42:hidden:compact"));
+  assert.ok(data.includes("hidden_reason:skip:42"));
+  assert.ok(data.includes("hidden_reason:set:42:not_rf"));
+  assert.ok(data.includes("hidden_reason:set:42:stack_mismatch"));
+  assert.ok(data.includes("hidden_reason:set:42:low_salary"));
+  assert.ok(data.includes("hidden_reason:set:42:wrong_grade"));
+  assert.ok(data.includes("hidden_reason:set:42:office_or_hybrid"));
+  assert.ok(data.includes("hidden_reason:set:42:scam"));
+  assert.ok(data.includes("hidden_reason:set:42:seen_before"));
+  assert.ok(data.includes("hidden_reason:set:42:unwanted_niche"));
+  assert.ok(data.includes("hidden_reason:set:42:unclear_company"));
 });
 
 test("applied vacancy uses application follow-up prompt instead of ordinary reminder", () => {
