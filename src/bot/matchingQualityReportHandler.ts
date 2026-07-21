@@ -8,11 +8,12 @@ export async function handleQualityReportCommand(
   database: VacancyDatabase
 ): Promise<void> {
   if (!database.hasOwnerAccess(ctx.from?.id)) {
-    await ctx.reply("🔒 Этот раздел недоступен.");
+    await ctx.reply("Команда доступна только владельцу");
     return;
   }
   try {
-    const report = buildMatchingQualityReport(database);
+    const userId = String(ctx.from!.id);
+    const report = buildMatchingQualityReport(database, userId);
     await ctx.reply(report);
   } catch (error) {
     loggerModule.logger.error({ err: error }, "Failed to build matching quality report");

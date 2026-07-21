@@ -1325,7 +1325,11 @@ export class VacancyDatabase {
       .run(userId, vacancyId);
   }
 
-  getMatchingQualityStats(sinceIso: string): {
+  getMatchingQualityStats(
+    userId: string,
+    sinceIso: string,
+    untilIso: string
+  ): {
     totalMatches: number;
     totalWithFeedback: number;
     relevantCount: number;
@@ -1340,9 +1344,9 @@ export class VacancyDatabase {
           SUM(CASE WHEN f.value = 'not_relevant' THEN 1 ELSE 0 END) AS not_relevant_count
         FROM user_vacancy_matches m
         LEFT JOIN vacancy_relevance_feedback f ON f.user_id = m.user_id AND f.vacancy_id = m.vacancy_id
-        WHERE m.created_at >= ?`
+        WHERE m.user_id = ? AND m.created_at >= ? AND m.created_at < ?`
       )
-      .get(sinceIso) as {
+      .get(userId, sinceIso, untilIso) as {
         total_matches: number;
         total_with_feedback: number;
         relevant_count: number;
