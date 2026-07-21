@@ -7,12 +7,15 @@ import {
   createApplicationFollowUpPromptKeyboard,
   createApplicationStatusPageKeyboard,
   createDailyDigestKeyboard,
+  createDiagnosticsKeyboard,
   createDiagnosticsKeyboardWithSuggestion,
   createHiddenVacancyReceiptKeyboard,
   createHiddenReasonKeyboard,
   createMainKeyboard,
   createMyVacanciesKeyboard,
   createNotificationsKeyboard,
+  createOnboardingCompletionKeyboard,
+  createRematchSummaryKeyboard,
   createSearchProfileDetailKeyboard,
   createUserSettingsKeyboardWithStatuses,
   createVacancyKeyboardWithActions,
@@ -45,6 +48,12 @@ function urls(keyboard: unknown): string[] {
     .flat()
     .map((button) => button.url)
     .filter((value): value is string => typeof value === "string");
+}
+
+function labels(keyboard: unknown): string[] {
+  return rows(keyboard)
+    .flat()
+    .map((button) => button.text);
 }
 
 function createMatchedVacancy(overrides: Partial<MatchedVacancyRecord> = {}): MatchedVacancyRecord {
@@ -179,6 +188,42 @@ test("my vacancies keyboard keeps applications entry", () => {
   assert.ok(data.includes("status:hidden:0"));
   assert.ok(data.includes("reminders:page:0"));
   assert.ok(data.includes("menu:home"));
+});
+
+test("main keyboard uses new weekly entry label and callback", () => {
+  const btnLabels = labels(createMainKeyboard(false, true, true));
+  const btnCallbacks = callbacks(createMainKeyboard(false, true, true));
+
+  assert.ok(btnLabels.includes("🗂️ Подборка вакансий"));
+  assert.ok(btnCallbacks.includes("week:0"));
+  assert.ok(!btnLabels.includes("🗂️ Вакансии за неделю"));
+});
+
+test("diagnostics keyboard uses new weekly entry label and callback", () => {
+  const btnLabels = labels(createDiagnosticsKeyboard(true));
+  const btnCallbacks = callbacks(createDiagnosticsKeyboard(true));
+
+  assert.ok(btnLabels.includes("🗂️ Подборка вакансий"));
+  assert.ok(btnCallbacks.includes("week:0"));
+  assert.ok(!btnLabels.includes("🗂️ Вакансии за неделю"));
+});
+
+test("onboarding completion keyboard uses new weekly entry label and callback", () => {
+  const btnLabels = labels(createOnboardingCompletionKeyboard(false, true));
+  const btnCallbacks = callbacks(createOnboardingCompletionKeyboard(false, true));
+
+  assert.ok(btnLabels.includes("🗂️ Подборка вакансий"));
+  assert.ok(btnCallbacks.includes("week:0"));
+  assert.ok(!btnLabels.includes("🗂️ Вакансии за неделю"));
+});
+
+test("rematch summary keyboard uses new weekly entry label and callback", () => {
+  const btnLabels = labels(createRematchSummaryKeyboard());
+  const btnCallbacks = callbacks(createRematchSummaryKeyboard());
+
+  assert.ok(btnLabels.includes("🗂️ Подборка вакансий"));
+  assert.ok(btnCallbacks.includes("week:0"));
+  assert.ok(!btnLabels.includes("🗂️ Вакансии за неделю"));
 });
 
 test("vacancy action keyboard keeps only vacancy-scoped actions", () => {

@@ -29,7 +29,7 @@ function createTempDatabaseConfig() {
 test("start message explains the current main menu map", () => {
   const formatted = formatStartMessage(createTempDatabaseConfig());
 
-  assert.match(formatted, /Вакансии за неделю/u);
+  assert.match(formatted, /Подборка вакансий/u);
   assert.match(formatted, /Мои поиски/u);
   assert.match(formatted, /Мои вакансии/u);
   assert.match(formatted, /Настройки/u);

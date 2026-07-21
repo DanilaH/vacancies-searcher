@@ -696,7 +696,7 @@ export function formatStartMessage(_config: AppConfig): string {
     "👋 Это бот для отслеживания вакансий в Telegram.",
     "",
     "Главные разделы:",
-    "• 🗂️ Вакансии за неделю — накопленная подборка",
+    "• 🗂️ Подборка вакансий — подходящие вакансии за выбранный период",
     "• 🎯 Мои поиски — отдельные поиски, пресеты и стоп-слова",
     "• 📌 Мои вакансии — сохранённые, отклики, скрытые и напоминания",
     "• ⚙️ Настройки — дайджест, уведомления и размер выдачи",
@@ -1089,7 +1089,7 @@ export function formatNoNewVacanciesNotification(
     `🧾 Просмотрено постов: ${payload.fetchedItemsCount}`,
     `🕒 Время проверки: ${formatTime(payload.checkedAtIso, config.timeZone)}`,
     "",
-    "Если хочешь посмотреть накопленную подборку, открой «Вакансии за неделю»."
+    "Если хочешь посмотреть накопленную подборку, открой раздел «Подборка вакансий»."
   ].join("\n");
 }
 
@@ -1101,7 +1101,7 @@ export function formatBlockedWeeklyAccess(
   const missingRequired = health.missingRequiredSections.map(searchProfileSectionLabel);
 
   return [
-    "🗂️ Вакансии за неделю пока недоступны",
+    "🗂️ Подборка вакансий пока недоступна",
     "",
     health.summary,
     ...(health.guidance ? [health.guidance] : []),

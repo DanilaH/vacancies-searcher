@@ -140,6 +140,24 @@ function createHealthReport(overrides: Partial<SearchProfileHealthReport> = {}):
   };
 }
 
+test("formatWeeklyVacancies dynamic headings match selected period", () => {
+  const emptyPage: UserWeeklyVacancyPage = {
+    items: [],
+    offset: 0,
+    pageSize: 5,
+    total: 0
+  };
+
+  const heading7 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 7 });
+  assert.match(heading7, /🗂️ Вакансии за неделю/);
+
+  const heading14 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 14 });
+  assert.match(heading14, /🗂️ Вакансии за 14 дней/);
+
+  const heading30 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 30 });
+  assert.match(heading30, /🗂️ Вакансии за 30 дней/);
+});
+
 test("formatWeeklyVacancies uses compact cards with separators", () => {
   const page: UserWeeklyVacancyPage = {
     items: [
@@ -626,7 +644,7 @@ test("formatBlockedWeeklyAccess explains filled and missing profile sections", (
 
   const formatted = formatBlockedWeeklyAccess(profile, health);
 
-  assert.match(formatted, /🗂️ Вакансии за неделю пока недоступны/);
+  assert.match(formatted, /🗂️ Подборка вакансий пока недоступна/);
   assert.match(formatted, /У вас заполнено:/);
   assert.match(formatted, /• Условия и формат/);
   assert.match(formatted, /• Желательные сигналы/);
