@@ -661,6 +661,17 @@ export interface VacancyRelevanceFeedbackRecord {
   updatedAt: string;
 }
 
+export interface RejectedMatchAuditRecord {
+  userId: string;
+  vacancyId: number;
+  resolution: string;
+  score: number | null;
+  reason: string | null;
+  decidedAt: string;
+  reviewedAt: string | null;
+  verdict: string | null;
+}
+
 export interface UserVacancyHiddenReasonRecord {
   userId: string;
   vacancyId: number;

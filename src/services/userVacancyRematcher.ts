@@ -7,11 +7,13 @@ import {
 import { getSearchProfileHealth } from "./searchProfileHealth";
 import { VacancyFilter } from "./vacancyFilter";
 import { evaluateSearchProfiles } from "./multiProfileMatching";
+import { trySaveRejectedAudit } from "./rejectedMatchAuditService";
 
 export class UserVacancyRematcher {
   constructor(
     private readonly database: VacancyDatabase,
-    private readonly filter: VacancyFilter
+    private readonly filter: VacancyFilter,
+    private readonly ownerUserId?: string
   ) {}
 
   rebuildForUser(userId: string, days: number): UserVacancyRematchSummary {
@@ -65,6 +67,13 @@ export class UserVacancyRematcher {
       }
 
       if (!evaluation.result) {
+        trySaveRejectedAudit(
+          this.database,
+          evaluation,
+          userId,
+          vacancy.id,
+          this.ownerUserId
+        );
         continue;
       }
 

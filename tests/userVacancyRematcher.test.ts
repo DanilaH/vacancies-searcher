@@ -28,7 +28,7 @@ function createDatabase() {
 test("UserVacancyRematcher rebuilds matches for the current user profile", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
 
   const now = new Date();
   const withinWindow = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
@@ -101,7 +101,7 @@ test("UserVacancyRematcher rebuilds matches for the current user profile", () =>
 test("UserVacancyRematcher removes resume-like posts from weekly feed", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
 
   const withinWindow = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -141,7 +141,7 @@ test("UserVacancyRematcher removes resume-like posts from weekly feed", () => {
 test("UserVacancyRematcher applies the current vacancy language mode", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
   const withinWindow = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   database.recordMessage(
@@ -195,7 +195,7 @@ test("UserVacancyRematcher applies the current vacancy language mode", () => {
 test("UserVacancyRematcher only keeps hh vacancies eligible for the user", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
   const withinWindow = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const result = database.recordMessage(
