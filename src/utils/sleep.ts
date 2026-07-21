@@ -3,8 +3,5 @@ export async function sleep(milliseconds: number): Promise<void> {
     return;
   }
 
-  await new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref();
-  });
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
