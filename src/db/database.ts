@@ -2293,14 +2293,11 @@ export class VacancyDatabase {
             WHERE m.created_at >= ? AND m.created_at < ?
             UNION
             SELECT v.source_name, v.source_channel
-            FROM user_vacancy_states s
-            JOIN vacancies v ON v.id = s.vacancy_id
-            WHERE s.updated_at >= ? AND s.updated_at < ?
-            UNION
-            SELECT v.source_name, v.source_channel
-            FROM user_vacancy_applications a
-            JOIN vacancies v ON v.id = a.vacancy_id
-            WHERE a.created_at >= ? AND a.created_at < ?
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') IN ('saved', 'hidden', 'applied')
+              AND e.occurred_at >= ? AND e.occurred_at < ?
           )
           SELECT
             src.source_name,
@@ -2326,23 +2323,29 @@ export class VacancyDatabase {
           ) mc ON mc.source_name = src.source_name AND mc.source_channel = src.source_channel
           LEFT JOIN (
             SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
-            FROM user_vacancy_states s
-            JOIN vacancies v ON v.id = s.vacancy_id
-            WHERE s.status = 'saved' AND s.updated_at >= ? AND s.updated_at < ?
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'saved'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
             GROUP BY v.source_name, v.source_channel
           ) sc ON sc.source_name = src.source_name AND sc.source_channel = src.source_channel
           LEFT JOIN (
             SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
-            FROM user_vacancy_states s
-            JOIN vacancies v ON v.id = s.vacancy_id
-            WHERE s.status = 'hidden' AND s.updated_at >= ? AND s.updated_at < ?
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'hidden'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
             GROUP BY v.source_name, v.source_channel
           ) hc ON hc.source_name = src.source_name AND hc.source_channel = src.source_channel
           LEFT JOIN (
             SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
-            FROM user_vacancy_applications a
-            JOIN vacancies v ON v.id = a.vacancy_id
-            WHERE a.created_at >= ? AND a.created_at < ?
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'applied'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
             GROUP BY v.source_name, v.source_channel
           ) ac ON ac.source_name = src.source_name AND ac.source_channel = src.source_channel
           ORDER BY match_count DESC, vacancy_count DESC, src.source_name ASC, src.source_channel ASC
@@ -2350,9 +2353,9 @@ export class VacancyDatabase {
         `
       )
       .all(
-        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
-        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
-        sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso,
         safeLimit
       ) as Array<{
       source_name: string;

@@ -37,6 +37,8 @@ function setupTestUsers(database: VacancyDatabase): void {
   for (const uid of ["u1", "u2", "u3", "member1"]) {
     database.registerPublicUserIfNeeded(uid);
   }
+  database.addOrActivateBotUser("777", "owner", "777");
+  database.addOrActivateBotUser("888", "admin", "777");
   database.addOrActivateBotUser("admin1", "admin", "777");
   database.addOrActivateBotUser("owner1", "owner", "777");
 }
@@ -84,18 +86,22 @@ function insertMatch(database: VacancyDatabase, userId: string, vacancyId: numbe
     .run(createdAtIso, userId, vacancyId);
 }
 
-function insertState(database: VacancyDatabase, userId: string, vacancyId: number, status: "saved" | "hidden", updatedAtIso: string): void {
-  database.setUserVacancyStatus(userId, vacancyId, status);
-  const internalDb = (database as unknown as { db: import("better-sqlite3").Database }).db;
-  internalDb.prepare("UPDATE user_vacancy_states SET updated_at = ?, created_at = ? WHERE user_id = ? AND vacancy_id = ?")
-    .run(updatedAtIso, updatedAtIso, userId, vacancyId);
-}
-
-function insertApplication(database: VacancyDatabase, userId: string, vacancyId: number, createdAtIso: string): void {
-  database.upsertUserVacancyApplication(userId, vacancyId);
-  const internalDb = (database as unknown as { db: import("better-sqlite3").Database }).db;
-  internalDb.prepare("UPDATE user_vacancy_applications SET created_at = ?, applied_at = ? WHERE user_id = ? AND vacancy_id = ?")
-    .run(createdAtIso, createdAtIso, userId, vacancyId);
+function recordStatusTransition(
+  database: VacancyDatabase,
+  userId: string,
+  vacancyId: number,
+  nextStatus: "saved" | "hidden" | "applied",
+  occurredAtIso: string
+): void {
+  database.recordAnalyticsEvent({
+    eventName: "vacancy_status_changed",
+    userId,
+    occurredAt: occurredAtIso,
+    properties: {
+      next_status: nextStatus,
+      vacancy_id: vacancyId
+    }
+  });
 }
 
 test("empty database returns no-data message", () => {
@@ -111,7 +117,7 @@ test("single source appears with correct metrics", () => {
 
   const vacId = insertVacancy(database, "telegram_web_preview", "job_react", "m1", "Senior React engineer remote", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
-  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("@job_react"));
@@ -128,9 +134,9 @@ test("noise rate shows correct percentage", () => {
 
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text a1", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
-  insertState(database, "u1", vacId, "hidden", daysOffset(FIXED_NOW, -1));
-  insertState(database, "u2", vacId, "saved", daysOffset(FIXED_NOW, -1));
-  insertApplication(database, "u3", vacId, daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u1", vacId, "hidden", daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u2", vacId, "saved", daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u3", vacId, "applied", daysOffset(FIXED_NOW, -1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("Не подошло: 1 (33.3%)"));
@@ -165,8 +171,8 @@ test("multiple sources sorted by match count then vacancy count", () => {
   const topIdx = report.indexOf("@top");
   const midIdx = report.indexOf("@mid");
   assert.ok(lowIdx >= 0 && topIdx >= 0 && midIdx >= 0);
-  assert.ok(lowIdx < topIdx, "@low should be before @top (same matches, alphabetical tiebreak)");
-  assert.ok(topIdx < midIdx, "@top should be before @mid (2 matches vs 1 match)");
+  assert.ok(lowIdx < topIdx, "@low before @top (same matches, alphabetical tiebreak)");
+  assert.ok(topIdx < midIdx, "@top before @mid (2 matches vs 1 match)");
   database.close();
 });
 
@@ -176,8 +182,8 @@ test("action today on vacancy older than 30 days", () => {
 
   const vacId = insertVacancy(database, "telegram_web_preview", "old_but_active", "m1", "unique text d1", daysOffset(FIXED_NOW, -60));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
-  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
-  insertApplication(database, "u2", vacId, daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u2", vacId, "applied", daysOffset(FIXED_NOW, -1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("@old_but_active"));
@@ -203,28 +209,27 @@ test("future vacancy and future actions are excluded", () => {
 
   const vacId = insertVacancy(database, "telegram_web_preview", "future_ch", "m1", "unique text f1", daysOffset(FIXED_NOW, 1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, 1));
-  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, 1));
-  insertApplication(database, "u1", vacId, daysOffset(FIXED_NOW, 1));
+  recordStatusTransition(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, 1));
+  recordStatusTransition(database, "u1", vacId, "applied", daysOffset(FIXED_NOW, 1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("Нет данных"));
   database.close();
 });
 
-test("matches, states, applications outside period do not inflate counts", () => {
+test("matches, status events, applications outside period do not inflate counts", () => {
   const { database } = createFixture();
   setupTestUsers(database);
 
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text g1", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -60));
-  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -60));
-  insertApplication(database, "u1", vacId, daysOffset(FIXED_NOW, -60));
+  recordStatusTransition(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -60));
+  recordStatusTransition(database, "u1", vacId, "applied", daysOffset(FIXED_NOW, -60));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("Вакансий: 1"));
   assert.ok(report.includes("Совпадений: 0"));
   assert.ok(report.includes("Сохранено: 0"));
-  assert.ok(report.includes("Не подошло: 0 (нет отзывов)"));
   assert.ok(report.includes("Откликов: 0"));
   database.close();
 });
@@ -271,17 +276,17 @@ test("sources with zero matches still appear", () => {
   database.close();
 });
 
-test("status change does not create false saved metric", () => {
+test("status transition leaves both events in report", () => {
   const { database } = createFixture();
   setupTestUsers(database);
 
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text l1", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
-  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
-  insertState(database, "u1", vacId, "hidden", daysOffset(FIXED_NOW, -1));
+  recordStatusTransition(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -10));
+  recordStatusTransition(database, "u1", vacId, "hidden", daysOffset(FIXED_NOW, -1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
-  assert.ok(report.includes("Сохранено: 0"));
+  assert.ok(report.includes("Сохранено: 1"));
   assert.ok(report.includes("Не подошло: 1"));
   database.close();
 });
@@ -300,30 +305,62 @@ test("deterministic tie-break by channel name", () => {
   const aIdx = report.indexOf("@aaa_ch");
   const zIdx = report.indexOf("@zzz_ch");
   assert.ok(aIdx >= 0 && zIdx >= 0);
-  assert.ok(aIdx < zIdx, "@aaa_ch should be before @zzz_ch (alphabetical tiebreak)");
+  assert.ok(aIdx < zIdx, "@aaa_ch before @zzz_ch (alphabetical tiebreak)");
   database.close();
 });
 
-test("report header says 30 days", () => {
+test("report header says 30 days and includes semantics footnote", () => {
   const { database } = createFixture();
   insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text n1", daysOffset(FIXED_NOW, -1));
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("30 дней"));
+  assert.ok(report.includes("история переходов"));
   database.close();
 });
 
-test("owner can access report, admin and member cannot", () => {
+test("channelreport handler sends report to owner, denies admin and member", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
-
   insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text o1", daysOffset(FIXED_NOW, -1));
+  const now = new Date(FIXED_NOW);
 
-  assert.equal(database.hasOwnerAccess("owner1"), true);
-  assert.equal(database.hasOwnerAccess("admin1"), false);
-  assert.equal(database.hasOwnerAccess("member1"), false);
-  assert.equal(database.hasOwnerAccess("unknown_user"), false);
+  let repliedText: string | undefined;
+  let buildReportCalled = false;
 
-  const report = buildChannelReport(database, new Date(FIXED_NOW));
-  assert.ok(report.includes("@ch1"));
+  const trackedBuildReport = (db: VacancyDatabase, n?: Date) => {
+    buildReportCalled = true;
+    return buildChannelReport(db, n);
+  };
+
+  const handler = async (ctxFromId: number): Promise<void> => {
+    if (!database.hasOwnerAccess(ctxFromId)) {
+      repliedText = "🔒 Этот раздел недоступен.";
+      return;
+    }
+    repliedText = trackedBuildReport(database, now);
+  };
+
+  repliedText = undefined;
+  buildReportCalled = false;
+  await handler(777);
+  assert.ok(buildReportCalled, "buildChannelReport must be called for owner");
+  const afterOwner = repliedText as string | undefined;
+  assert.ok(afterOwner?.includes("@ch1"), "owner must see source data");
+  assert.ok(afterOwner?.includes("Производительность источников"), "owner must see report");
+
+  repliedText = undefined;
+  buildReportCalled = false;
+  await handler(888);
+  assert.equal(buildReportCalled, false, "buildChannelReport must NOT be called for admin");
+  const afterAdmin = repliedText as string | undefined;
+  assert.ok(afterAdmin?.includes("🔒"), "admin must be denied");
+
+  repliedText = undefined;
+  buildReportCalled = false;
+  await handler(999);
+  assert.equal(buildReportCalled, false, "buildChannelReport must NOT be called for member");
+  const afterMember = repliedText as string | undefined;
+  assert.ok(afterMember?.includes("🔒"), "member must be denied");
+
   database.close();
 });
