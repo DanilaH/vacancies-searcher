@@ -149,6 +149,16 @@ export type ChannelDiscoveryRunCreateInput = {
   providerWarnings?: string[];
 };
 
+export interface ChannelPerformanceRow {
+  sourceName: string;
+  sourceChannel: string;
+  vacancyCount: number;
+  matchCount: number;
+  savedCount: number;
+  hiddenCount: number;
+  applicationCount: number;
+}
+
 export type RecentRawMessageReference = {
   sourceChannel: string;
   text: string;
@@ -2264,6 +2274,108 @@ export class VacancyDatabase {
       .all(since) as VacancyRow[];
 
     return rows.map((row) => mapVacancy(row));
+  }
+
+  listChannelPerformance(sinceIso: string, untilIso: string, limit = 10): ChannelPerformanceRow[] {
+    const db = this.getDb();
+    const safeLimit = Math.max(1, limit);
+    const rows = db
+      .prepare(
+        `
+          WITH active_sources AS (
+            SELECT source_name, source_channel
+            FROM vacancies
+            WHERE created_at >= ? AND created_at < ?
+            UNION
+            SELECT v.source_name, v.source_channel
+            FROM user_vacancy_matches m
+            JOIN vacancies v ON v.id = m.vacancy_id
+            WHERE m.created_at >= ? AND m.created_at < ?
+            UNION
+            SELECT v.source_name, v.source_channel
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') IN ('saved', 'hidden', 'applied')
+              AND e.occurred_at >= ? AND e.occurred_at < ?
+          )
+          SELECT
+            src.source_name,
+            src.source_channel,
+            COALESCE(vc.cnt, 0) AS vacancy_count,
+            COALESCE(mc.cnt, 0) AS match_count,
+            COALESCE(sc.cnt, 0) AS saved_count,
+            COALESCE(hc.cnt, 0) AS hidden_count,
+            COALESCE(ac.cnt, 0) AS application_count
+          FROM active_sources src
+          LEFT JOIN (
+            SELECT source_name, source_channel, COUNT(*) AS cnt
+            FROM vacancies
+            WHERE created_at >= ? AND created_at < ?
+            GROUP BY source_name, source_channel
+          ) vc ON vc.source_name = src.source_name AND vc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM user_vacancy_matches m
+            JOIN vacancies v ON v.id = m.vacancy_id
+            WHERE m.created_at >= ? AND m.created_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) mc ON mc.source_name = src.source_name AND mc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'saved'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) sc ON sc.source_name = src.source_name AND sc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'hidden'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) hc ON hc.source_name = src.source_name AND hc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM analytics_events e
+            JOIN vacancies v ON v.id = json_extract(e.properties_json, '$.vacancy_id')
+            WHERE e.event_name = 'vacancy_status_changed'
+              AND json_extract(e.properties_json, '$.next_status') = 'applied'
+              AND e.occurred_at >= ? AND e.occurred_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) ac ON ac.source_name = src.source_name AND ac.source_channel = src.source_channel
+          ORDER BY match_count DESC, vacancy_count DESC, src.source_name ASC, src.source_channel ASC
+          LIMIT ?
+        `
+      )
+      .all(
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso,
+        safeLimit
+      ) as Array<{
+      source_name: string;
+      source_channel: string;
+      vacancy_count: number;
+      match_count: number;
+      saved_count: number;
+      hidden_count: number;
+      application_count: number;
+    }>;
+
+    return rows.map((row) => ({
+      sourceName: row.source_name,
+      sourceChannel: row.source_channel,
+      vacancyCount: row.vacancy_count,
+      matchCount: row.match_count,
+      savedCount: row.saved_count,
+      hiddenCount: row.hidden_count,
+      applicationCount: row.application_count
+    }));
   }
 
   canReplaceVacancyAggregate(vacancyId: number): boolean {

@@ -33,6 +33,7 @@ import {
     parseHiddenVacancyReason
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
+import { handleChannelReportCommand } from "./channelReportHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -116,7 +117,8 @@ const ADMIN_BOT_COMMANDS = [
 const OWNER_BOT_COMMANDS = [
     ...ADMIN_BOT_COMMANDS,
     { command: "backup", description: "Отправить резервную копию базы" },
-    { command: "report", description: "Аналитика за 7 дней" }
+    { command: "report", description: "Аналитика за 7 дней" },
+    { command: "channelreport", description: "Производительность источников" }
 ];
 
 export async function dismissHiddenVacancyCardMessage(
@@ -1291,6 +1293,9 @@ export function createBotController(
             loggerModule.logger.error({ err: error }, "Failed to build weekly report");
             await ctx.reply("⚠️ Не удалось сформировать отчёт.");
         }
+    });
+    bot.command("channelreport", async (ctx) => {
+        await handleChannelReportCommand(ctx, database);
     });
     bot.callbackQuery(/^report:period:(\d+)$/, async (ctx) => {
         if (!(await ensureOwnerAccess(ctx))) {
