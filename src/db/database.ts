@@ -1248,6 +1248,19 @@ export class VacancyDatabase {
     vacancyId: number,
     value: VacancyRelevanceValue
   ): VacancyRelevanceFeedbackRecord {
+    const existing = this.getVacancyRelevanceFeedback(userId, vacancyId);
+    if (existing === value) {
+      const row = this.getDb()
+        .prepare("SELECT user_id, vacancy_id, value, created_at, updated_at FROM vacancy_relevance_feedback WHERE user_id = ? AND vacancy_id = ?")
+        .get(userId, vacancyId) as { user_id: string; vacancy_id: number; value: string; created_at: string; updated_at: string };
+      return {
+        userId: row.user_id,
+        vacancyId: row.vacancy_id,
+        value: row.value as VacancyRelevanceValue,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    }
     const timestamp = nowIso();
     const row = this.getDb()
       .prepare(

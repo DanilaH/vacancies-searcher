@@ -34,6 +34,7 @@ import {
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
 import { handleChannelReportCommand } from "./channelReportHandler";
+import { processRelevanceFeedback } from "./relevanceFeedbackHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -916,6 +917,18 @@ export function createBotController(
     function buildVacancyMessageRecord(userId: string, vacancyId: number, statusOverride?: VacancyUserStatus): MatchedVacancyRecord | null {
         return userPanels.buildVacancyMessageRecord(userId, vacancyId, statusOverride);
     }
+    function buildVacancyActionsKeyboard(
+        vacancy: VacancyRecord | MatchedVacancyRecord,
+        showNotifications: boolean,
+        view: formatters.VacancyNotificationView = "compact",
+        origin?: vacancyCardOrigin.VacancyCardOrigin,
+        forUserId?: string
+    ): grammy.InlineKeyboard {
+        const relevanceValue = forUserId
+            ? database.getVacancyRelevanceFeedback(forUserId, vacancy.id)
+            : null;
+        return keyboards.createVacancyKeyboardWithActions(vacancy, showNotifications, view, origin, relevanceValue ?? undefined);
+    }
     function buildApplicationDetailRecord(userId: string, vacancyId: number): UserVacancyApplicationRecord | null {
         if (database.getUserVacancyStatus(userId, vacancyId) !== "applied") {
             return null;
@@ -958,7 +971,7 @@ export function createBotController(
         }
         const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
         const text = formatters.formatVacancyNotification(vacancyWithDuplicates, config, view);
-        const replyMarkup = keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(userId), view, origin);
+        const replyMarkup = buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(userId), view, origin, userId);
         if (mode === "edit" && ctx.callbackQuery) {
             await ctx.editMessageText(text, { reply_markup: replyMarkup });
             return;
@@ -1774,19 +1787,9 @@ export function createBotController(
             text: buildStatusActionText(requestedStatus, nextStatus === "inbox")
         });
         if (nextStatus === "hidden") {
-            database.upsertVacancyRelevanceFeedback(currentUserId, vacancyId, "not_relevant");
-            if (vacancy) {
-                await analytics.capture({
-                    eventName: "vacancy_relevance_feedback",
-                    userId: currentUserId,
-                    properties: {
-                        ...buildUserAnalyticsProperties(currentUserId),
-                        vacancy_id: vacancyId,
-                        value: "not_relevant",
-                        source_name: vacancy.sourceName,
-                        source_channel: vacancy.sourceChannel
-                    }
-                });
+            const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
+            if (result.kind === "recorded") {
+                await analytics.capture(result.event);
             }
             const restoredWeekly = origin
                 ? await showWeeklyPageForOrigin(ctx, currentUserId, origin, "edit")
@@ -1817,7 +1820,7 @@ export function createBotController(
         }
         const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
         await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
-            reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin)
+            reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, currentUserId)
         });
     });
     bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
@@ -1830,39 +1833,28 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "⚠️ Не удалось сохранить оценку." });
             return;
         }
-        const existing = database.getVacancyRelevanceFeedback(currentUserId, vacancyId);
-        if (existing === value) {
+        const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
+        if (result.kind === "unchanged") {
             await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
             return;
         }
-        database.upsertVacancyRelevanceFeedback(currentUserId, vacancyId, value);
-        const vacancy = database.getVacancy(vacancyId);
-        if (vacancy) {
-            await analytics.capture({
-                eventName: "vacancy_relevance_feedback",
-                userId: currentUserId,
-                properties: {
-                    ...buildUserAnalyticsProperties(currentUserId),
-                    vacancy_id: vacancyId,
-                    value,
-                    source_name: vacancy.sourceName,
-                    source_channel: vacancy.sourceChannel
-                }
-            });
+        if (result.kind === "vacancy_not_found") {
+            await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
+            return;
         }
+        await analytics.capture(result.event);
         await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
         const vacancyRecord = buildVacancyMessageRecord(currentUserId, vacancyId);
         if (!vacancyRecord) {
             return;
         }
         const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
+        const keyboard = buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, currentUserId);
         try {
-            await ctx.editMessageReplyMarkup({
-                reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, "relevant")
-            });
+            await ctx.editMessageReplyMarkup({ reply_markup: keyboard });
         } catch {
             await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
-                reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, "relevant")
+                reply_markup: keyboard
             });
         }
     });
@@ -1957,7 +1949,7 @@ export function createBotController(
             text: view === "full" ? "📄 Показываю полный текст." : "↩️ Карточка свёрнута."
         });
         await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
-            reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin)
+            reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, currentUserId)
         });
     });
     bot.callbackQuery(/^vacancy:remind:(\d+):(compact|full)(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
@@ -2017,7 +2009,7 @@ export function createBotController(
         }
         const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
         await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
-            reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin)
+            reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, currentUserId)
         });
     });
     bot.callbackQuery(/^vacancy:remind:cancel:(\d+):(compact|full)(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
@@ -2047,7 +2039,7 @@ export function createBotController(
         }
         const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
         await ctx.editMessageText(formatters.formatVacancyNotification(vacancyWithDuplicates, config, view), {
-            reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin)
+            reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(currentUserId), view, origin, currentUserId)
         });
     });
     bot.callbackQuery(/^application:followup:(\d+):(compact|full)(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
@@ -3400,7 +3392,7 @@ export function createBotController(
             try {
                 const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancy);
                 await bot.api.sendMessage(vacancy.userId, formatters.formatVacancyNotification(vacancyWithDuplicates, config), {
-                    reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(vacancy.userId))
+                    reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(vacancy.userId), "compact", undefined, vacancy.userId)
                 });
             }
             catch (error) {
@@ -3438,7 +3430,7 @@ export function createBotController(
             try {
                 const vacancyWithDuplicates = enrichVacancyDuplicatePosts(vacancyRecord);
                 await bot.api.sendMessage(reminder.userId, formatters.formatVacancyReminderNotification(vacancyWithDuplicates, config), {
-                    reply_markup: keyboards.createVacancyKeyboardWithActions(vacancyWithDuplicates, shouldShowNotifications(reminder.userId))
+                    reply_markup: buildVacancyActionsKeyboard(vacancyWithDuplicates, shouldShowNotifications(reminder.userId), "compact", undefined, reminder.userId)
                 });
             }
             catch (error) {
