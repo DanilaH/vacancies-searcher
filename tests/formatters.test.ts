@@ -140,6 +140,24 @@ function createHealthReport(overrides: Partial<SearchProfileHealthReport> = {}):
   };
 }
 
+test("formatWeeklyVacancies dynamic headings match selected period", () => {
+  const emptyPage: UserWeeklyVacancyPage = {
+    items: [],
+    offset: 0,
+    pageSize: 5,
+    total: 0
+  };
+
+  const heading7 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 7 });
+  assert.match(heading7, /🗂️ Вакансии за неделю/);
+
+  const heading14 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 14 });
+  assert.match(heading14, /🗂️ Вакансии за 14 дней/);
+
+  const heading30 = formatWeeklyVacancies(emptyPage, config, undefined, { days: 30 });
+  assert.match(heading30, /🗂️ Вакансии за 30 дней/);
+});
+
 test("formatWeeklyVacancies uses compact cards with separators", () => {
   const page: UserWeeklyVacancyPage = {
     items: [

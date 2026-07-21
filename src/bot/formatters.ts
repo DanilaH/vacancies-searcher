@@ -1089,7 +1089,7 @@ export function formatNoNewVacanciesNotification(
     `🧾 Просмотрено постов: ${payload.fetchedItemsCount}`,
     `🕒 Время проверки: ${formatTime(payload.checkedAtIso, config.timeZone)}`,
     "",
-    "Если хочешь посмотреть накопленную подборку, открой «Подборка вакансий»."
+    "Если хочешь посмотреть накопленную подборку, открой раздел «Подборка вакансий»."
   ].join("\n");
 }
 
