@@ -632,7 +632,7 @@ test("formatBlockedWeeklyAccess explains filled and missing profile sections", (
   assert.match(formatted, /• Желательные сигналы/);
   assert.match(formatted, /Нужно заполнить:/);
   assert.match(formatted, /• Основной профиль/);
-  assert.match(formatted, /Перейдите в «Мои фильтры»/);
+  assert.match(formatted, /Перейдите в «Мои поиски»/);
 });
 
 test("formatBlockedWeeklyAccess handles completely empty profile", () => {
