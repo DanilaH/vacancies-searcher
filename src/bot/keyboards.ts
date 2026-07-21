@@ -42,7 +42,6 @@ export function createMainKeyboard(showAdmin: boolean, showNotifications: boolea
     }
 
     keyboard
-      .text("✅ Отклики", "status:applied:0")
       .text("📌 Мои вакансии", "menu:vacancies")
       .row()
       .text("🎯 Мои поиски", "menu:filters")
