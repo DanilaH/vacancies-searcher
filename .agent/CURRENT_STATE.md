@@ -85,6 +85,8 @@ Pending because generic parser did not confidently parse the sample:
 - `rabota.sber.ru`
 - `youngjunior.ru`
 
+- Rejected match audit table (`rejected_match_audit`) stores a limited sample (max 500 unverified per owner) of vacancies that the matcher checked for the owner but rejected. Recording happens in `UserVacancyRematcher.rebuildForUser`. No Telegram command or UI yet.
+
 ## Verification Status
 
 Known from recent work:

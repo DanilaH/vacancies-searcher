@@ -3,11 +3,11 @@ import { BotController } from "../bot/createBot";
 import { AppConfig } from "../config";
 import { VacancyDatabase } from "../db/database";
 import { logger } from "../logger";
-import { BotUser, RawVacancyItem, VacancyRecord } from "../types";
+import { RawVacancyItem, VacancyRecord } from "../types";
 import { extractSupportedCompanyCareerUrl } from "./companyCareerUrls";
 import { extractContacts } from "./contactExtractor";
 import { VacancyFilter } from "./vacancyFilter";
-import { evaluateActiveSearchProfiles, MultiProfileMatchResult } from "./multiProfileMatching";
+import { evaluateSearchProfiles } from "./multiProfileMatching";
 import { ExternalVacancyEnricher, ExternalVacancyEnrichmentError } from "./externalVacancyEnricher";
 import { extractTrustedVacancyUrlCandidates, isTrustedVacancyUrlShape } from "./trustedVacancyServices";
 
@@ -205,16 +205,35 @@ export class VacancyIngestor {
         this.database.recordHhVacancyCandidate(user.userId, vacancy.id, item.sourceQueryKey ?? "hh_api");
       }
 
-      const personalMatch = this.evaluateForUser(item, user);
-      if (!personalMatch) {
+      const evaluation = evaluateSearchProfiles(
+        this.filter,
+        item.text,
+        this.database.listUserSearchProfiles(user.userId, true)
+      );
+      if (!evaluation.result) {
+        if (user.userId === this.config.ownerUserId && user.isActive) {
+          const bestScore = Math.max(
+            ...evaluation.evaluations.map((e) => e.filterResult.score)
+          );
+          const allReasons = evaluation.evaluations.flatMap(
+            (e) => e.filterResult.rejectionReasons ?? []
+          );
+          const reason = [...new Set(allReasons)].join(", ");
+          this.database.saveRejectedAuditCandidate(
+            user.userId,
+            vacancy.id,
+            bestScore,
+            reason || null
+          );
+        }
         continue;
       }
 
       const matchedVacancy = this.database.createUserVacancyMatch(
         user.userId,
         vacancy.id,
-        personalMatch.filterResult,
-        personalMatch.profileMatches
+        evaluation.result.filterResult,
+        evaluation.result.profileMatches
       );
       if (!matchedVacancy) {
         continue;
@@ -247,11 +266,4 @@ export class VacancyIngestor {
     return matchedUserIds;
   }
 
-  private evaluateForUser(item: RawVacancyItem, user: BotUser): MultiProfileMatchResult | null {
-    return evaluateActiveSearchProfiles(
-      this.filter,
-      item.text,
-      this.database.listUserSearchProfiles(user.userId, true)
-    );
-  }
 }

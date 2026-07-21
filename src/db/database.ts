@@ -1335,43 +1335,48 @@ export class VacancyDatabase {
     const timestamp = nowIso();
     const db = this.getDb();
 
-    const count = (
-      db.prepare(
-        "SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE user_id = ? AND reviewed_at IS NULL"
-      ).get(userId) as { cnt: number }
-    ).cnt;
+    const row = db.transaction(() => {
+      const r = db
+        .prepare(
+          `INSERT INTO rejected_match_audit (user_id, vacancy_id, resolution, score, reason, decided_at)
+           VALUES (?, ?, 'rejected', ?, ?, ?)
+           ON CONFLICT(user_id, vacancy_id)
+           DO UPDATE SET score = excluded.score, reason = excluded.reason
+           RETURNING user_id, vacancy_id, resolution, score, reason, decided_at, reviewed_at, verdict`
+        )
+        .get(userId, vacancyId, score, reason, timestamp) as {
+          user_id: string;
+          vacancy_id: number;
+          resolution: string;
+          score: number | null;
+          reason: string | null;
+          decided_at: string;
+          reviewed_at: string | null;
+          verdict: string | null;
+        };
 
-    if (count >= 500) {
-      const excess = count - 500 + 1;
-      db.prepare(
-        `DELETE FROM rejected_match_audit
-         WHERE rowid IN (
-           SELECT rowid FROM rejected_match_audit
-           WHERE user_id = ? AND reviewed_at IS NULL
-           ORDER BY decided_at ASC
-           LIMIT ?
-         )`
-      ).run(userId, excess);
-    }
+      const cnt = (
+        db.prepare(
+          "SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE user_id = ? AND reviewed_at IS NULL"
+        ).get(userId) as { cnt: number }
+      ).cnt;
 
-    const row = db
-      .prepare(
-        `INSERT INTO rejected_match_audit (user_id, vacancy_id, resolution, score, reason, decided_at)
-         VALUES (?, ?, 'rejected', ?, ?, ?)
-         ON CONFLICT(user_id, vacancy_id)
-         DO UPDATE SET score = excluded.score, reason = excluded.reason, decided_at = excluded.decided_at, reviewed_at = NULL, verdict = NULL
-         RETURNING user_id, vacancy_id, resolution, score, reason, decided_at, reviewed_at, verdict`
-      )
-      .get(userId, vacancyId, score, reason, timestamp) as {
-        user_id: string;
-        vacancy_id: number;
-        resolution: string;
-        score: number | null;
-        reason: string | null;
-        decided_at: string;
-        reviewed_at: string | null;
-        verdict: string | null;
-      };
+      if (cnt > 500) {
+        const excess = cnt - 500;
+        db.prepare(
+          `DELETE FROM rejected_match_audit
+           WHERE rowid IN (
+             SELECT rowid FROM rejected_match_audit
+             WHERE user_id = ? AND reviewed_at IS NULL
+             ORDER BY decided_at ASC
+             LIMIT ?
+           )`
+        ).run(userId, excess);
+      }
+
+      return r;
+    })();
+
     return {
       userId: row.user_id,
       vacancyId: row.vacancy_id,

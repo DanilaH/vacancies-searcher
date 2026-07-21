@@ -4,9 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { createAnalyticsService } from "../src/analytics/analyticsService";
+import { BotController } from "../src/bot/createBot";
 import { VacancyDatabase } from "../src/db/database";
 import { UserVacancyRematcher } from "../src/services/userVacancyRematcher";
 import { VacancyFilter } from "../src/services/vacancyFilter";
+import { VacancyIngestor } from "../src/services/vacancyIngestor";
+import { MatchedVacancyRecord } from "../src/types";
 import { createTestConfig } from "./helpers";
 
 function createDatabase(ownerUserId = "777") {
@@ -60,8 +64,7 @@ test("saveRejectedAuditCandidate stores a record and returns it", () => {
   database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
   rematcher.rebuildForUser("777", 7);
 
-  const count = database.countUnreviewedRejectedAudit("777");
-  assert.equal(count, 1);
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 1);
 
   database.close();
 });
@@ -100,23 +103,87 @@ test("saveRejectedAuditCandidate does not store vacancy text", () => {
   database.close();
 });
 
-// ─── Idempotent ──────────────────────────────────────────────────────────────
+// ─── Issue 2: ON CONFLICT preserves reviewed_at / verdict / decided_at ──────
 
-test("saveRejectedAuditCandidate is idempotent on (user_id, vacancy_id)", () => {
+test("saveRejectedAuditCandidate preserves reviewed_at, verdict, and decided_at on conflict", () => {
   const { database } = createDatabase();
   const vid = makeVacancy(database, "Some text", "1004", "test_channel", daysAgo(2));
 
-  database.saveRejectedAuditCandidate("777", vid, 10, "first");
-  database.saveRejectedAuditCandidate("777", vid, 20, "second");
+  const first = database.saveRejectedAuditCandidate("777", vid, 10, "first");
+  const originalDecidedAt = first.decidedAt;
 
-  assert.equal(database.countUnreviewedRejectedAudit("777"), 1);
+  getDb(database)
+    .prepare("UPDATE rejected_match_audit SET reviewed_at = ?, verdict = 'miss' WHERE user_id = ? AND vacancy_id = ?")
+    .run(new Date().toISOString(), "777", vid);
 
-  const row = getDb(database)
-    .prepare("SELECT score, reason FROM rejected_match_audit WHERE user_id = ? AND vacancy_id = ?")
-    .get("777", vid) as { score: number; reason: string };
-  assert.equal(row.score, 20);
-  assert.equal(row.reason, "second");
+  const second = database.saveRejectedAuditCandidate("777", vid, 20, "second");
 
+  assert.equal(second.score, 20);
+  assert.equal(second.reason, "second");
+  assert.equal(second.decidedAt, originalDecidedAt, "decided_at must not be reset");
+  assert.notEqual(second.reviewedAt, null, "reviewed_at must be preserved");
+  assert.equal(second.verdict, "miss", "verdict must be preserved");
+
+  database.close();
+});
+
+// ─── Issue 4: Owner activity check ──────────────────────────────────────────
+
+test("UserVacancyRematcher does not create audit records for deactivated owner", () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
+
+  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "1005", "test_channel", daysAgo(2));
+
+  getDb(database)
+    .prepare("UPDATE bot_users SET is_active = 0 WHERE user_id = ?")
+    .run("777");
+
+  database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
+  rematcher.rebuildForUser("777", 7);
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 0);
+
+  database.close();
+});
+
+test("VacancyIngestor does not create audit records for deactivated owner", async () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const deliveries: string[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(v: MatchedVacancyRecord) { deliveries.push(v.userId); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+
+  getDb(database)
+    .prepare("UPDATE bot_users SET is_active = 0 WHERE user_id = ?")
+    .run("777");
+
+  database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
+
+  const ingestor = new VacancyIngestor(config, filter, database, bot, analytics);
+  await ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "test_channel",
+    messageId: "1006",
+    date: daysAgo(1),
+    text: "Junior Vue developer\nOffice\nAngular",
+    url: "https://t.me/test_channel/1006"
+  });
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 0);
+
+  await analytics.shutdown();
   database.close();
 });
 
@@ -127,7 +194,7 @@ test("UserVacancyRematcher does not record audit for non-owner user", () => {
   const filter = new VacancyFilter(config);
   const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
 
-  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "1005", "test_channel", daysAgo(2));
+  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "1007", "test_channel", daysAgo(2));
   database.setUserSearchProfileKeywords("999", "required_primary", ["python"]);
 
   database.setBotUserRole("777", "member");
@@ -145,8 +212,8 @@ test("UserVacancyRematcher records only rejected vacancies for owner", () => {
   const filter = new VacancyFilter(config);
   const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
 
-  makeVacancy(database, "Senior React engineer\nRemote\nTypeScript", "1006", "test_channel", daysAgo(2));
-  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "1007", "test_channel", daysAgo(2));
+  makeVacancy(database, "Senior React engineer\nRemote\nTypeScript", "1008", "test_channel", daysAgo(2));
+  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "1009", "test_channel", daysAgo(2));
 
   database.setUserSearchProfileKeywords("777", "required_primary", ["react"]);
   database.setUserSearchProfileKeywords("777", "preferred", ["typescript"]);
@@ -158,7 +225,7 @@ test("UserVacancyRematcher records only rejected vacancies for owner", () => {
   database.close();
 });
 
-// ─── Limit 500 + cleanup ────────────────────────────────────────────────────
+// ─── Limit 500 + cleanup (issue 3: save first, then cleanup) ─────────────────
 
 test("saveRejectedAuditCandidate caps unreviewed records at 500 per owner", () => {
   const { database } = createDatabase("777");
@@ -185,13 +252,41 @@ test("saveRejectedAuditCandidate caps unreviewed records at 500 per owner", () =
   database.close();
 });
 
+test("saveRejectedAuditCandidate at 500 records does not delete on re-save of existing pair", () => {
+  const { database } = createDatabase("777");
+  const userId = "777";
+
+  const vids: number[] = [];
+  for (let i = 0; i < 500; i++) {
+    const vid = makeVacancy(database, "Vacancy " + i + " text", String(20000 + i), "test_channel", daysAgo(500 - i));
+    vids.push(vid);
+  }
+
+  for (let i = 0; i < 500; i++) {
+    database.saveRejectedAuditCandidate(userId, vids[i], i, "reason-" + i);
+  }
+
+  assert.equal(database.countUnreviewedRejectedAudit(userId), 500);
+
+  database.saveRejectedAuditCandidate(userId, vids[0], 999, "re-save");
+
+  assert.equal(database.countUnreviewedRejectedAudit(userId), 500);
+
+  const row = getDb(database)
+    .prepare("SELECT score FROM rejected_match_audit WHERE user_id = ? AND vacancy_id = ?")
+    .get(userId, vids[0]) as { score: number };
+  assert.equal(row.score, 999);
+
+  database.close();
+});
+
 test("pruneUnreviewedRejectedAudit removes oldest unreviewed records beyond limit", () => {
   const { database } = createDatabase("777");
   const userId = "777";
 
   const vids: number[] = [];
   for (let i = 0; i < 100; i++) {
-    const vid = makeVacancy(database, "Vacancy " + i + " text", String(20000 + i), "test_channel", daysAgo(100 - i));
+    const vid = makeVacancy(database, "Vacancy " + i + " text", String(30000 + i), "test_channel", daysAgo(100 - i));
     vids.push(vid);
   }
   for (let i = 0; i < 100; i++) {
@@ -240,7 +335,7 @@ test("saveRejectedAuditCandidate does not evict reviewed records", () => {
 
   const vids: number[] = [];
   for (let i = 0; i < 501; i++) {
-    const vid = makeVacancy(database, "Bulk " + i, String(30000 + i), "test_channel", daysAgo(500 - i));
+    const vid = makeVacancy(database, "Bulk " + i, String(40000 + i), "test_channel", daysAgo(500 - i));
     vids.push(vid);
   }
   for (let i = 0; i < 501; i++) {
@@ -292,5 +387,83 @@ test("UserVacancyRematcher integration: owner rebuild records rejected audit ent
     assert.ok(row.reason.length > 0);
   }
 
+  database.close();
+});
+
+// ─── Issue 1: Live ingestion path ───────────────────────────────────────────
+
+test("VacancyIngestor records rejected audit entries for the owner during live ingestion", async () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const deliveries: string[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(v: MatchedVacancyRecord) { deliveries.push(v.userId); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+
+  database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
+
+  const ingestor = new VacancyIngestor(config, filter, database, bot, analytics);
+  await ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "test_channel",
+    messageId: "5001",
+    date: daysAgo(1),
+    text: "Senior React engineer\nRemote\nTypeScript",
+    url: "https://t.me/test_channel/5001"
+  });
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 1);
+
+  await analytics.shutdown();
+  database.close();
+});
+
+test("VacancyIngestor records audit entry with correct score and reason from live ingestion", async () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const deliveries: string[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(v: MatchedVacancyRecord) { deliveries.push(v.userId); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+
+  database.setUserSearchProfileKeywords("777", "exclude", ["react"]);
+
+  const ingestor = new VacancyIngestor(config, filter, database, bot, analytics);
+  await ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "test_channel",
+    messageId: "5002",
+    date: daysAgo(1),
+    text: "Senior React engineer\nRemote\nTypeScript",
+    url: "https://t.me/test_channel/5002"
+  });
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 1);
+
+  const rows = getDb(database)
+    .prepare("SELECT score, reason FROM rejected_match_audit WHERE user_id = ?")
+    .all("777") as { score: number; reason: string }[];
+  assert.equal(typeof rows[0].score, "number");
+  assert.ok(rows[0].reason.length > 0);
+
+  await analytics.shutdown();
   database.close();
 });
