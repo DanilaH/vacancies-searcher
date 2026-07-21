@@ -110,7 +110,7 @@ export function createWeeklyKeyboard(
 
   keyboard.row();
   for (const option of WEEKLY_WINDOW_DAYS_OPTIONS) {
-    keyboard.text(option === windowDays ? `âœ… ${option} Ð´Ð½.` : `${option} Ð´Ð½.`, callback(0, option));
+    keyboard.text(option === windowDays ? `✅ ${option} дн.` : `${option} дн.`, callback(0, option));
   }
 
   if (profileId) {
@@ -138,7 +138,7 @@ export function createWeeklyZeroStateKeyboard(
   };
 
   for (const option of WEEKLY_WINDOW_DAYS_OPTIONS) {
-    keyboard.text(option === windowDays ? `âœ… ${option} Ð´Ð½.` : `${option} Ð´Ð½.`, callback(option));
+    keyboard.text(option === windowDays ? `✅ ${option} дн.` : `${option} дн.`, callback(option));
   }
   keyboard.row();
 
