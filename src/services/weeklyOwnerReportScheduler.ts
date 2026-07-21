@@ -4,16 +4,15 @@ import { buildWeeklyReport } from "./weeklyReport";
 import type { AppConfig } from "../config";
 
 const CHECK_INTERVAL_MS = 5 * 60_000;
-const SCHEDULE_DAY = 1;
 const SCHEDULE_HOUR = 9;
 const SCHEDULE_MINUTE = 0;
 
-type ReportDelivery = (text: string) => Promise<boolean>;
+type ReportDelivery = (recipientId: string, text: string) => Promise<boolean>;
 
 export interface LocalTimeInfo {
   weekKey: string;
-  isMonday: boolean;
   minutes: number;
+  isMonday: boolean;
 }
 
 export class WeeklyOwnerReportScheduler {
@@ -54,7 +53,7 @@ export class WeeklyOwnerReportScheduler {
     }
 
     const local = this.getLocalTimeInfo(now);
-    if (!local.isMonday || local.minutes < SCHEDULE_HOUR * 60 + SCHEDULE_MINUTE) {
+    if (local.isMonday && local.minutes < SCHEDULE_HOUR * 60 + SCHEDULE_MINUTE) {
       return;
     }
 
@@ -66,7 +65,7 @@ export class WeeklyOwnerReportScheduler {
     this.inFlight = (async () => {
       try {
         const report = buildWeeklyReport(this.database, now, 7);
-        const delivered = await this.deliver(report);
+        const delivered = await this.deliver(ownerId, report);
         if (delivered) {
           this.database.markOwnerReportDelivered(local.weekKey, 7, now.toISOString());
         }

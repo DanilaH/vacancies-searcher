@@ -48,8 +48,9 @@ function createFixture(responseFactory: () => Response) {
     async sendApplicationFollowUp() { return true; },
     async sendNoNewVacanciesNotification() { return true; },
     async sendStartupDiagnostic() {},
-    async sendAdminAlert() { return true; }
-  };
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+    };
   const analytics = createAnalyticsService(config, database);
   const enricher = new ExternalVacancyEnricher(config, database, {
     assertSafeUrl: async (url) => url,

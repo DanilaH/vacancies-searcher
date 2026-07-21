@@ -106,7 +106,7 @@ test("getLocalTimeInfo weekKey shows previous year Monday for early January Sund
 test("sends report on Monday after 09:00", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -136,7 +136,7 @@ test("records delivery in DB after successful send", async () => {
 test("does not send before 09:00 on Monday", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T08:59:59.000Z"));
@@ -148,32 +148,64 @@ test("does not send before 09:00 on Monday", async () => {
   database.close();
 });
 
-test("does not send on Tuesday", async () => {
+test("sends on Tuesday as catch-up if Monday was missed", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-21T09:00:00.000Z"));
 
   await scheduler.runDueCycle();
 
-  assert.equal(delivered.length, 0);
+  assert.equal(delivered.length, 1);
+  assert.ok(delivered[0].includes("📊 Отчёт"));
 
   database.close();
 });
 
-test("does not send on Sunday", async () => {
+test("sends on Sunday as catch-up if week was missed", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-26T09:00:00.000Z"));
 
   await scheduler.runDueCycle();
 
-  assert.equal(delivered.length, 0);
+  assert.equal(delivered.length, 1);
+
+  database.close();
+});
+
+test("sends on Wednesday after restart catch-up", async () => {
+  const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
+  const delivered: string[] = [];
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
+    delivered.push(text);
+    return true;
+  }, () => makeDate("2026-07-22T10:00:00.000Z"));
+
+  await scheduler.start();
+  await scheduler.stop();
+
+  assert.equal(delivered.length, 1);
+
+  database.close();
+});
+
+test("delivery receives correct ownerUserId as recipientId", async () => {
+  const { config, database } = createDatabase({ ownerUserId: "owner_x", timeZone: "UTC" });
+  let capturedRecipient = "";
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (recipientId, _text) => {
+    capturedRecipient = recipientId;
+    return true;
+  }, () => makeDate("2026-07-20T09:00:00.000Z"));
+
+  await scheduler.runDueCycle();
+
+  assert.equal(capturedRecipient, "owner_x");
 
   database.close();
 });
@@ -181,7 +213,7 @@ test("does not send on Sunday", async () => {
 test("does not send twice in the same week", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -199,7 +231,7 @@ test("does not send duplicate after restart", async () => {
   const delivered: string[] = [];
   database.markOwnerReportDelivered("2026-07-20", 7, "2026-07-20T09:00:00.000Z");
 
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T10:00:00.000Z"));
@@ -261,7 +293,7 @@ test("retries after delivery failure on next cycle", async () => {
 test("does nothing when ownerUserId is not configured", async () => {
   const { config, database } = createDatabase({ ownerUserId: undefined, timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -276,7 +308,7 @@ test("does nothing when ownerUserId is not configured", async () => {
 test("sends on Monday after 09:00 in non-UTC timezone", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "Asia/Yekaterinburg" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T04:00:00.000Z"));
@@ -291,7 +323,7 @@ test("sends on Monday after 09:00 in non-UTC timezone", async () => {
 test("sends when local time (Asia/Yekaterinburg 14:00) is past 09:00 even if UTC is only 09:00", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "Asia/Yekaterinburg" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -309,7 +341,7 @@ test("sends on next Monday after missing the previous week", async () => {
 
   database.markOwnerReportDelivered("2026-07-13", 7, "2026-07-13T09:00:00.000Z");
 
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -326,7 +358,7 @@ test("sends on next Monday after missing the previous week", async () => {
 test("stop prevents repeated delivery after initial start cycle", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -336,13 +368,17 @@ test("stop prevents repeated delivery after initial start cycle", async () => {
 
   assert.equal(delivered.length, 1);
 
+  await scheduler.runDueCycle();
+
+  assert.equal(delivered.length, 1);
+
   database.close();
 });
 
 test("start sends immediately if Monday after 09:00 and not yet delivered", async () => {
   const { config, database } = createDatabase({ ownerUserId: "owner1", timeZone: "UTC" });
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));
@@ -360,7 +396,7 @@ test("start does not send if already delivered this week", async () => {
   database.markOwnerReportDelivered("2026-07-20", 7, "2026-07-20T08:00:00.000Z");
 
   const delivered: string[] = [];
-  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (text) => {
+  const scheduler = new WeeklyOwnerReportScheduler(database, config, async (_id, text) => {
     delivered.push(text);
     return true;
   }, () => makeDate("2026-07-20T09:00:00.000Z"));

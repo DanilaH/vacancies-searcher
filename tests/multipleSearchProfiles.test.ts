@@ -209,9 +209,10 @@ test("ingestor sends one notification when a vacancy matches multiple profiles",
     },
     async sendStartupDiagnostic() {},
     async sendAdminAlert() {
-      return true;
-    }
-  };
+            return true;
+        },
+        async sendOwnerReport() { return true; }
+    };
   const analytics = createAnalyticsService(config, database);
   const ingestor = new VacancyIngestor(config, new VacancyFilter(config), database, bot, analytics);
 

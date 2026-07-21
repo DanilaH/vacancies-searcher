@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   const ownerReportScheduler = new WeeklyOwnerReportScheduler(
     database,
     config,
-    (text) => bot.sendAdminAlert(text)
+    (_recipientId, text) => bot.sendOwnerReport(text)
   );
   const dailyDigestScheduler = new DailyDigestScheduler(
     database,
