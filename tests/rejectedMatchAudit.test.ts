@@ -467,3 +467,84 @@ test("VacancyIngestor records audit entry with correct score and reason from liv
   await analytics.shutdown();
   database.close();
 });
+
+// ─── Empty active profiles (no evaluations) ─────────────────────────────────
+
+test("UserVacancyRematcher does not create audit records when owner has no active profiles", () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
+
+  makeVacancy(database, "Junior Vue developer\nOffice\nAngular", "6001", "test_channel", daysAgo(2));
+
+  const profileId = (getDb(database)
+    .prepare("SELECT id FROM user_search_profiles WHERE user_id = ? LIMIT 1")
+    .get("777") as { id: number } | undefined)?.id;
+  assert.ok(profileId, "owner should have a default profile");
+  database.setUserSearchProfileActive("777", profileId, false);
+
+  rematcher.rebuildForUser("777", 7);
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 0);
+
+  const hasInfinity = getDb(database)
+    .prepare("SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE score IS NOT NULL AND (score = 9.0e999 OR score = -9.0e999)")
+    .get() as { cnt: number };
+  assert.equal(hasInfinity.cnt, 0);
+
+  const hasNan = getDb(database)
+    .prepare("SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE score IS NOT NULL AND score != score")
+    .get() as { cnt: number };
+  assert.equal(hasNan.cnt, 0);
+
+  database.close();
+});
+
+test("VacancyIngestor does not create audit records when owner has no active profiles", async () => {
+  const { config, database } = createDatabase("777");
+  const filter = new VacancyFilter(config);
+  const deliveries: string[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(v: MatchedVacancyRecord) { deliveries.push(v.userId); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+
+  const profileId = (getDb(database)
+    .prepare("SELECT id FROM user_search_profiles WHERE user_id = ? LIMIT 1")
+    .get("777") as { id: number } | undefined)?.id;
+  assert.ok(profileId, "owner should have a default profile");
+  database.setUserSearchProfileActive("777", profileId, false);
+
+  const ingestor = new VacancyIngestor(config, filter, database, bot, analytics);
+  await ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "test_channel",
+    messageId: "6002",
+    date: daysAgo(1),
+    text: "Senior React engineer\nRemote\nTypeScript",
+    url: "https://t.me/test_channel/6002"
+  });
+
+  assert.equal(database.countUnreviewedRejectedAudit("777"), 0);
+
+  const hasInfinity = getDb(database)
+    .prepare("SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE score IS NOT NULL AND (score = 9.0e999 OR score = -9.0e999)")
+    .get() as { cnt: number };
+  assert.equal(hasInfinity.cnt, 0);
+
+  const hasNan = getDb(database)
+    .prepare("SELECT COUNT(*) AS cnt FROM rejected_match_audit WHERE score IS NOT NULL AND score != score")
+    .get() as { cnt: number };
+  assert.equal(hasNan.cnt, 0);
+
+  await analytics.shutdown();
+  database.close();
+});

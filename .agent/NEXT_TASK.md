@@ -10,7 +10,7 @@ Current branch: `feat/rejected-match-audit-sample` (PR #15)
 - DB methods: `saveRejectedAuditCandidate`, `countUnreviewedRejectedAudit`, `getRejectedMatchAudit`, `pruneUnreviewedRejectedAudit`
 - Auto-cleanup to 500 unverified per owner on save
 - Verified records never evicted
-- Recording in `UserVacancyRematcher.rebuildForUser` for owner rejected matches
+- Recording in both `UserVacancyRematcher.rebuildForUser` and `VacancyIngestor.matchVacancyForEligibleUsers` via shared helper `trySaveRejectedAudit`
 - 12 tests covering save, idempotency, owner-only, rejected-only, limit 500, cleanup, verified-kept, integration
 - PR #15 created into master
 

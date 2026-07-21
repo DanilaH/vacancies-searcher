@@ -8,6 +8,7 @@ import { extractSupportedCompanyCareerUrl } from "./companyCareerUrls";
 import { extractContacts } from "./contactExtractor";
 import { VacancyFilter } from "./vacancyFilter";
 import { evaluateSearchProfiles } from "./multiProfileMatching";
+import { trySaveRejectedAudit } from "./rejectedMatchAuditService";
 import { ExternalVacancyEnricher, ExternalVacancyEnrichmentError } from "./externalVacancyEnricher";
 import { extractTrustedVacancyUrlCandidates, isTrustedVacancyUrlShape } from "./trustedVacancyServices";
 
@@ -211,21 +212,13 @@ export class VacancyIngestor {
         this.database.listUserSearchProfiles(user.userId, true)
       );
       if (!evaluation.result) {
-        if (user.userId === this.config.ownerUserId && user.isActive) {
-          const bestScore = Math.max(
-            ...evaluation.evaluations.map((e) => e.filterResult.score)
-          );
-          const allReasons = evaluation.evaluations.flatMap(
-            (e) => e.filterResult.rejectionReasons ?? []
-          );
-          const reason = [...new Set(allReasons)].join(", ");
-          this.database.saveRejectedAuditCandidate(
-            user.userId,
-            vacancy.id,
-            bestScore,
-            reason || null
-          );
-        }
+        trySaveRejectedAudit(
+          this.database,
+          evaluation,
+          user.userId,
+          vacancy.id,
+          this.config.ownerUserId
+        );
         continue;
       }
 

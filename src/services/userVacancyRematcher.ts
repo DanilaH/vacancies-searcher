@@ -7,6 +7,7 @@ import {
 import { getSearchProfileHealth } from "./searchProfileHealth";
 import { VacancyFilter } from "./vacancyFilter";
 import { evaluateSearchProfiles } from "./multiProfileMatching";
+import { trySaveRejectedAudit } from "./rejectedMatchAuditService";
 
 export class UserVacancyRematcher {
   constructor(
@@ -66,24 +67,13 @@ export class UserVacancyRematcher {
       }
 
       if (!evaluation.result) {
-        if (userId === this.ownerUserId) {
-          const owner = this.database.getBotUser(userId);
-          if (owner?.isActive) {
-            const bestScore = Math.max(
-              ...evaluation.evaluations.map((e) => e.filterResult.score)
-            );
-            const allReasons = evaluation.evaluations.flatMap(
-              (e) => e.filterResult.rejectionReasons ?? []
-            );
-            const reason = [...new Set(allReasons)].join(", ");
-            this.database.saveRejectedAuditCandidate(
-              userId,
-              vacancy.id,
-              bestScore,
-              reason || null
-            );
-          }
-        }
+        trySaveRejectedAudit(
+          this.database,
+          evaluation,
+          userId,
+          vacancy.id,
+          this.ownerUserId
+        );
         continue;
       }
 
