@@ -8,34 +8,34 @@ This project is a Telegram vacancy bot. It collects job posts from Telegram chan
 
 - Runtime: Node.js
 - Language: TypeScript
-- Package manager: pnpm
+- Package manager: npm
+- Bot framework: grammY
+- Database: SQLite via better-sqlite3
 - Main app source: `src/`
 - Configuration: `.env`
-- Tests: use the existing project test setup
+- Tests: Node.js test runner with tsx
 
 ## Important directories
 
 - `src/bot/` — Telegram bot logic
-- `src/parsers/` — source parsers and post extraction
-- `src/filters/` — keyword filtering, matching, deduplication
-- `src/storage/` — database/storage layer
-- `src/config/` — env parsing and app config
-- `docs/` — project notes and architecture docs
-
-Update this section if the real structure differs.
+- `src/services/` — business logic, filtering, matching, deduplication, discovery, reminders, and backups
+- `src/sources/` — Telegram, hh.ru, and company-career vacancy sources
+- `src/db/` — SQLite schema, persistence facade, and row mappers
+- `src/runtime/` — runtime-editable settings
+- `src/analytics/` — local analytics and optional PostHog forwarding
+- `src/utils/` — shared utilities
+- `tests/` — automated tests
+- `docs/` — product, architecture, task, and operations documentation
 
 ## Commands
 
 Use these commands when relevant:
 
-- Install dependencies: `pnpm install`
-- Start dev mode: `pnpm dev`
-- Build: `pnpm build`
-- Lint: `pnpm lint`
-- Type check: `pnpm typecheck`
-- Test: `pnpm test`
-
-If a command does not exist in `package.json`, inspect `package.json` and use the actual available command instead.
+- Install dependencies: `npm ci`
+- Start dev mode: `npm run dev`
+- Test: `npm test`
+- Build: `npm run build`
+- Type check: `npx tsc -p tsconfig.json --pretty false`
 
 ## Working rules
 
@@ -63,9 +63,8 @@ If a command does not exist in `package.json`, inspect `package.json` and use th
 Before finishing a task, run the smallest relevant checks:
 
 1. Type check.
-2. Lint if available.
-3. Tests if available.
-4. Build if the change affects runtime behavior.
+2. Relevant tests.
+3. Build if the change affects runtime behavior.
 
 If checks cannot be run, explain why and what was checked manually.
 
