@@ -2282,42 +2282,79 @@ export class VacancyDatabase {
     const rows = db
       .prepare(
         `
+          WITH active_sources AS (
+            SELECT source_name, source_channel
+            FROM vacancies
+            WHERE created_at >= ? AND created_at < ?
+            UNION
+            SELECT v.source_name, v.source_channel
+            FROM user_vacancy_matches m
+            JOIN vacancies v ON v.id = m.vacancy_id
+            WHERE m.created_at >= ? AND m.created_at < ?
+            UNION
+            SELECT v.source_name, v.source_channel
+            FROM user_vacancy_states s
+            JOIN vacancies v ON v.id = s.vacancy_id
+            WHERE s.updated_at >= ? AND s.updated_at < ?
+            UNION
+            SELECT v.source_name, v.source_channel
+            FROM user_vacancy_applications a
+            JOIN vacancies v ON v.id = a.vacancy_id
+            WHERE a.created_at >= ? AND a.created_at < ?
+          )
           SELECT
-            v.source_name,
-            v.source_channel,
-            COUNT(DISTINCT v.id) AS vacancy_count,
-            COALESCE(SUM(m.match_count), 0) AS match_count,
-            COALESCE(SUM(s.saved_count), 0) AS saved_count,
-            COALESCE(SUM(s.hidden_count), 0) AS hidden_count,
-            COALESCE(SUM(a.application_count), 0) AS application_count
-          FROM vacancies v
+            src.source_name,
+            src.source_channel,
+            COALESCE(vc.cnt, 0) AS vacancy_count,
+            COALESCE(mc.cnt, 0) AS match_count,
+            COALESCE(sc.cnt, 0) AS saved_count,
+            COALESCE(hc.cnt, 0) AS hidden_count,
+            COALESCE(ac.cnt, 0) AS application_count
+          FROM active_sources src
           LEFT JOIN (
-            SELECT vacancy_id, COUNT(*) AS match_count
-            FROM user_vacancy_matches
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY vacancy_id
-          ) m ON m.vacancy_id = v.id
+            SELECT source_name, source_channel, COUNT(*) AS cnt
+            FROM vacancies
+            WHERE created_at >= ? AND created_at < ?
+            GROUP BY source_name, source_channel
+          ) vc ON vc.source_name = src.source_name AND vc.source_channel = src.source_channel
           LEFT JOIN (
-            SELECT vacancy_id,
-              COUNT(CASE WHEN status = 'saved' THEN 1 END) AS saved_count,
-              COUNT(CASE WHEN status = 'hidden' THEN 1 END) AS hidden_count
-            FROM user_vacancy_states
-            WHERE updated_at >= ? AND updated_at <= ?
-            GROUP BY vacancy_id
-          ) s ON s.vacancy_id = v.id
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM user_vacancy_matches m
+            JOIN vacancies v ON v.id = m.vacancy_id
+            WHERE m.created_at >= ? AND m.created_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) mc ON mc.source_name = src.source_name AND mc.source_channel = src.source_channel
           LEFT JOIN (
-            SELECT vacancy_id, COUNT(*) AS application_count
-            FROM user_vacancy_applications
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY vacancy_id
-          ) a ON a.vacancy_id = v.id
-          WHERE v.created_at >= ? AND v.created_at <= ?
-          GROUP BY v.source_name, v.source_channel
-          ORDER BY match_count DESC, vacancy_count DESC
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM user_vacancy_states s
+            JOIN vacancies v ON v.id = s.vacancy_id
+            WHERE s.status = 'saved' AND s.updated_at >= ? AND s.updated_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) sc ON sc.source_name = src.source_name AND sc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM user_vacancy_states s
+            JOIN vacancies v ON v.id = s.vacancy_id
+            WHERE s.status = 'hidden' AND s.updated_at >= ? AND s.updated_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) hc ON hc.source_name = src.source_name AND hc.source_channel = src.source_channel
+          LEFT JOIN (
+            SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+            FROM user_vacancy_applications a
+            JOIN vacancies v ON v.id = a.vacancy_id
+            WHERE a.created_at >= ? AND a.created_at < ?
+            GROUP BY v.source_name, v.source_channel
+          ) ac ON ac.source_name = src.source_name AND ac.source_channel = src.source_channel
+          ORDER BY match_count DESC, vacancy_count DESC, src.source_name ASC, src.source_channel ASC
           LIMIT ?
         `
       )
-      .all(sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, safeLimit) as Array<{
+      .all(
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso,
+        sinceIso, untilIso,
+        safeLimit
+      ) as Array<{
       source_name: string;
       source_channel: string;
       vacancy_count: number;

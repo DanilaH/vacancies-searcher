@@ -33,12 +33,12 @@ function daysOffset(isoBase: string, days: number): string {
 
 const FIXED_NOW = "2026-07-21T12:00:00.000Z";
 
-const testUsers = ["u1", "u2", "u3"];
-
 function setupTestUsers(database: VacancyDatabase): void {
-  for (const uid of testUsers) {
+  for (const uid of ["u1", "u2", "u3", "member1"]) {
     database.registerPublicUserIfNeeded(uid);
   }
+  database.addOrActivateBotUser("admin1", "admin", "777");
+  database.addOrActivateBotUser("owner1", "owner", "777");
 }
 
 function makeFilterResult(): FilterResult {
@@ -149,14 +149,14 @@ test("multiple sources sorted by match count then vacancy count", () => {
   const { database } = createFixture();
   setupTestUsers(database);
 
-  const v1 = insertVacancy(database, "telegram_web_preview", "top", "m1", "unique text c1", daysOffset(FIXED_NOW, -1));
+  const v1 = insertVacancy(database, "telegram_web_preview", "low", "m1", "unique text c1", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", v1, daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u2", v1, daysOffset(FIXED_NOW, -1));
 
   const v2 = insertVacancy(database, "telegram_web_preview", "mid", "m1", "unique text c2", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", v2, daysOffset(FIXED_NOW, -1));
 
-  const v3 = insertVacancy(database, "telegram_web_preview", "low", "m1", "unique text c3", daysOffset(FIXED_NOW, -1));
+  const v3 = insertVacancy(database, "telegram_web_preview", "top", "m1", "unique text c3", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", v3, daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u2", v3, daysOffset(FIXED_NOW, -1));
 
@@ -170,12 +170,44 @@ test("multiple sources sorted by match count then vacancy count", () => {
   database.close();
 });
 
+test("action today on vacancy older than 30 days", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+
+  const vacId = insertVacancy(database, "telegram_web_preview", "old_but_active", "m1", "unique text d1", daysOffset(FIXED_NOW, -60));
+  insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
+  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
+  insertApplication(database, "u2", vacId, daysOffset(FIXED_NOW, -1));
+
+  const report = buildChannelReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("@old_but_active"));
+  assert.ok(report.includes("Вакансий: 0"));
+  assert.ok(report.includes("Совпадений: 1"));
+  assert.ok(report.includes("Сохранено: 1"));
+  assert.ok(report.includes("Откликов: 1"));
+  database.close();
+});
+
 test("vacancies outside the 30-day window are excluded", () => {
   const { database } = createFixture();
-  insertVacancy(database, "telegram_web_preview", "old_ch", "m1", "unique text d1", daysOffset(FIXED_NOW, -60));
+  insertVacancy(database, "telegram_web_preview", "old_ch", "m1", "unique text e1", daysOffset(FIXED_NOW, -60));
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("Нет данных"));
   assert.ok(!report.includes("@old_ch"));
+  database.close();
+});
+
+test("future vacancy and future actions are excluded", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+
+  const vacId = insertVacancy(database, "telegram_web_preview", "future_ch", "m1", "unique text f1", daysOffset(FIXED_NOW, 1));
+  insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, 1));
+  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, 1));
+  insertApplication(database, "u1", vacId, daysOffset(FIXED_NOW, 1));
+
+  const report = buildChannelReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("Нет данных"));
   database.close();
 });
 
@@ -183,7 +215,7 @@ test("matches, states, applications outside period do not inflate counts", () =>
   const { database } = createFixture();
   setupTestUsers(database);
 
-  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text e1", daysOffset(FIXED_NOW, -1));
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text g1", daysOffset(FIXED_NOW, -1));
   insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -60));
   insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -60));
   insertApplication(database, "u1", vacId, daysOffset(FIXED_NOW, -60));
@@ -199,8 +231,8 @@ test("matches, states, applications outside period do not inflate counts", () =>
 
 test("same source with multiple channels are grouped and counted separately", () => {
   const { database } = createFixture();
-  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text f1", daysOffset(FIXED_NOW, -1));
-  insertVacancy(database, "telegram_web_preview", "ch2", "m1", "unique text f2", daysOffset(FIXED_NOW, -1));
+  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text h1", daysOffset(FIXED_NOW, -1));
+  insertVacancy(database, "telegram_web_preview", "ch2", "m1", "unique text h2", daysOffset(FIXED_NOW, -1));
 
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("@ch1"));
@@ -209,18 +241,19 @@ test("same source with multiple channels are grouped and counted separately", ()
   database.close();
 });
 
-test("non-telegram source shows source name label", () => {
+test("non-Telegram source does not contain @", () => {
   const { database } = createFixture();
-  insertVacancy(database, "hh_api", "hh_query_1", "m1", "unique text g1", daysOffset(FIXED_NOW, -1));
+  insertVacancy(database, "hh_api", "hh_query_1", "m1", "unique text i1", daysOffset(FIXED_NOW, -1));
   const report = buildChannelReport(database, new Date(FIXED_NOW));
-  assert.ok(report.includes("(hh)"));
+  assert.ok(!report.includes("@hh_query_1"));
+  assert.ok(report.includes("hh_query_1 (hh)"));
   database.close();
 });
 
 test("limit of 10 sources is enforced", () => {
   const { database } = createFixture();
   for (let i = 0; i < 15; i++) {
-    insertVacancy(database, "telegram_web_preview", `ch${i}`, `m${i}`, `unique text h${i}`, daysOffset(FIXED_NOW, -1));
+    insertVacancy(database, "telegram_web_preview", `ch${i}`, `m${i}`, `unique text j${i}`, daysOffset(FIXED_NOW, -1));
   }
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   const matches = report.match(/@ch\d+/g);
@@ -231,17 +264,66 @@ test("limit of 10 sources is enforced", () => {
 
 test("sources with zero matches still appear", () => {
   const { database } = createFixture();
-  insertVacancy(database, "telegram_web_preview", "quiet", "m1", "unique text i1", daysOffset(FIXED_NOW, -1));
+  insertVacancy(database, "telegram_web_preview", "quiet", "m1", "unique text k1", daysOffset(FIXED_NOW, -1));
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("@quiet"));
   assert.ok(report.includes("Совпадений: 0"));
   database.close();
 });
 
+test("status change does not create false saved metric", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text l1", daysOffset(FIXED_NOW, -1));
+  insertMatch(database, "u1", vacId, daysOffset(FIXED_NOW, -1));
+  insertState(database, "u1", vacId, "saved", daysOffset(FIXED_NOW, -1));
+  insertState(database, "u1", vacId, "hidden", daysOffset(FIXED_NOW, -1));
+
+  const report = buildChannelReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("Сохранено: 0"));
+  assert.ok(report.includes("Не подошло: 1"));
+  database.close();
+});
+
+test("deterministic tie-break by channel name", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+
+  const vA = insertVacancy(database, "telegram_web_preview", "zzz_ch", "m1", "unique text m1", daysOffset(FIXED_NOW, -1));
+  insertMatch(database, "u1", vA, daysOffset(FIXED_NOW, -1));
+
+  const vB = insertVacancy(database, "telegram_web_preview", "aaa_ch", "m1", "unique text m2", daysOffset(FIXED_NOW, -1));
+  insertMatch(database, "u1", vB, daysOffset(FIXED_NOW, -1));
+
+  const report = buildChannelReport(database, new Date(FIXED_NOW));
+  const aIdx = report.indexOf("@aaa_ch");
+  const zIdx = report.indexOf("@zzz_ch");
+  assert.ok(aIdx >= 0 && zIdx >= 0);
+  assert.ok(aIdx < zIdx, "@aaa_ch should be before @zzz_ch (alphabetical tiebreak)");
+  database.close();
+});
+
 test("report header says 30 days", () => {
   const { database } = createFixture();
-  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text j1", daysOffset(FIXED_NOW, -1));
+  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text n1", daysOffset(FIXED_NOW, -1));
   const report = buildChannelReport(database, new Date(FIXED_NOW));
   assert.ok(report.includes("30 дней"));
+  database.close();
+});
+
+test("owner can access report, admin and member cannot", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+
+  insertVacancy(database, "telegram_web_preview", "ch1", "m1", "unique text o1", daysOffset(FIXED_NOW, -1));
+
+  assert.equal(database.hasOwnerAccess("owner1"), true);
+  assert.equal(database.hasOwnerAccess("admin1"), false);
+  assert.equal(database.hasOwnerAccess("member1"), false);
+  assert.equal(database.hasOwnerAccess("unknown_user"), false);
+
+  const report = buildChannelReport(database, new Date(FIXED_NOW));
+  assert.ok(report.includes("@ch1"));
   database.close();
 });

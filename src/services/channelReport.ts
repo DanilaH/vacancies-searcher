@@ -31,11 +31,11 @@ export function buildChannelReport(database: VacancyDatabase, now = new Date()):
 }
 
 function formatSourceLabel(sourceName: string, sourceChannel: string): string {
-  if (sourceName === "telegram_web_preview") {
+  if (sourceName === "telegram_web_preview" || sourceName === "telegram_mtproto") {
     return `@${sourceChannel}`;
   }
   const shortSource = shortenSourceName(sourceName);
-  return `@${sourceChannel} (${shortSource})`;
+  return `${sourceChannel} (${shortSource})`;
 }
 
 function shortenSourceName(name: string): string {
