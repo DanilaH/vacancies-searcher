@@ -1325,6 +1325,37 @@ export class VacancyDatabase {
       .run(userId, vacancyId);
   }
 
+  getMatchingQualityStats(sinceIso: string): {
+    totalMatches: number;
+    totalWithFeedback: number;
+    relevantCount: number;
+    notRelevantCount: number;
+  } {
+    const row = this.getDb()
+      .prepare(
+        `SELECT
+          COUNT(*) AS total_matches,
+          COUNT(f.value) AS total_with_feedback,
+          SUM(CASE WHEN f.value = 'relevant' THEN 1 ELSE 0 END) AS relevant_count,
+          SUM(CASE WHEN f.value = 'not_relevant' THEN 1 ELSE 0 END) AS not_relevant_count
+        FROM user_vacancy_matches m
+        LEFT JOIN vacancy_relevance_feedback f ON f.user_id = m.user_id AND f.vacancy_id = m.vacancy_id
+        WHERE m.created_at >= ?`
+      )
+      .get(sinceIso) as {
+        total_matches: number;
+        total_with_feedback: number;
+        relevant_count: number;
+        not_relevant_count: number;
+      };
+    return {
+      totalMatches: row.total_matches,
+      totalWithFeedback: row.total_with_feedback,
+      relevantCount: row.relevant_count,
+      notRelevantCount: row.not_relevant_count
+    };
+  }
+
   setUserVacancyHiddenReason(
     userId: string,
     vacancyId: number,
