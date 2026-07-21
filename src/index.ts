@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   );
 
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
   const runtimeSettings = new RuntimeSettingsService(config, database);
   const analytics = createAnalyticsService(config, database);
   const bot = createBotController(config, database, runtimeSettings, analytics, rematcher);

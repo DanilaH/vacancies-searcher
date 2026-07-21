@@ -84,7 +84,7 @@ test("user can manage up to five independent search profiles", () => {
 test("rematch combines profiles without duplicate vacancies and supports profile feeds", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
   const frontend = database.getUserSearchProfile("777");
   database.renameUserSearchProfile("777", frontend.id, "Frontend");
   database.replaceUserSearchProfile("777", {
@@ -134,7 +134,7 @@ test("rematch combines profiles without duplicate vacancies and supports profile
 test("weekly profile stats separate visible and hidden matches per profile", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
   const frontend = database.getUserSearchProfile("777");
   database.replaceUserSearchProfile("777", {
     requiredContextKeywords: ["remote"],
@@ -234,7 +234,7 @@ test("ingestor sends one notification when a vacancy matches multiple profiles",
 test("each search profile applies its own vacancy language mode", () => {
   const { config, database } = createDatabase();
   const filter = new VacancyFilter(config);
-  const rematcher = new UserVacancyRematcher(database, filter);
+  const rematcher = new UserVacancyRematcher(database, filter, undefined);
   const russian = database.getUserSearchProfile("777");
   database.renameUserSearchProfile("777", russian.id, "Русский frontend");
   database.replaceUserSearchProfile("777", {

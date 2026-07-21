@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     }
 
     if (apply && summary.replacedAggregates > 0) {
-      const rematcher = new UserVacancyRematcher(database, filter);
+      const rematcher = new UserVacancyRematcher(database, filter, config.ownerUserId);
       for (const user of database.listActiveUsers()) {
         rematcher.rebuildForUser(user.userId, days);
       }

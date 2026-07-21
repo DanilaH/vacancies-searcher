@@ -11,7 +11,8 @@ import { evaluateSearchProfiles } from "./multiProfileMatching";
 export class UserVacancyRematcher {
   constructor(
     private readonly database: VacancyDatabase,
-    private readonly filter: VacancyFilter
+    private readonly filter: VacancyFilter,
+    private readonly ownerUserId?: string
   ) {}
 
   rebuildForUser(userId: string, days: number): UserVacancyRematchSummary {
@@ -65,6 +66,21 @@ export class UserVacancyRematcher {
       }
 
       if (!evaluation.result) {
+        if (userId === this.ownerUserId) {
+          const bestScore = Math.max(
+            ...evaluation.evaluations.map((e) => e.filterResult.score)
+          );
+          const allReasons = evaluation.evaluations.flatMap(
+            (e) => e.filterResult.rejectionReasons ?? []
+          );
+          const reason = [...new Set(allReasons)].join(", ");
+          this.database.saveRejectedAuditCandidate(
+            userId,
+            vacancy.id,
+            bestScore,
+            reason || null
+          );
+        }
         continue;
       }
 

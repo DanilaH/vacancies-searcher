@@ -64,7 +64,8 @@ export type SchemaTableName =
   | "channel_discovery_candidates"
   | "channel_discovery_checks"
   | "owner_report_delivery"
-  | "vacancy_relevance_feedback";
+  | "vacancy_relevance_feedback"
+  | "rejected_match_audit";
 
 export function createBaseSchema(db: SqliteDatabase): void {
   db.exec(`
@@ -518,6 +519,7 @@ export function runMigrations(db: SqliteDatabase): void {
   ensureChannelDiscoveryTables(db);
   ensureOwnerReportDeliveryTable(db);
   ensureVacancyRelevanceFeedbackTable(db);
+  ensureRejectedMatchAuditTable(db);
 }
 
 function ensureUserSettingsColumns(db: SqliteDatabase): void {
@@ -1007,6 +1009,24 @@ function ensureUserVacancyStatesTable(db: SqliteDatabase): void {
   `);
 }
 
+function ensureRejectedMatchAuditTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rejected_match_audit (
+      user_id TEXT NOT NULL,
+      vacancy_id INTEGER NOT NULL,
+      resolution TEXT NOT NULL DEFAULT 'rejected',
+      score INTEGER,
+      reason TEXT,
+      decided_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      verdict TEXT,
+      PRIMARY KEY(user_id, vacancy_id),
+      FOREIGN KEY(vacancy_id) REFERENCES vacancies(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES bot_users(user_id) ON DELETE CASCADE
+    );
+  `);
+}
+
 function ensureVacancyRelevanceFeedbackTable(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS vacancy_relevance_feedback (
@@ -1341,7 +1361,8 @@ export function getSchemaTableColumns(db: SqliteDatabase, tableName: SchemaTable
     ,
     channel_discovery_checks: "PRAGMA table_info(channel_discovery_checks)",
     owner_report_delivery: "PRAGMA table_info(owner_report_delivery)",
-    vacancy_relevance_feedback: "PRAGMA table_info(vacancy_relevance_feedback)"
+    vacancy_relevance_feedback: "PRAGMA table_info(vacancy_relevance_feedback)",
+    rejected_match_audit: "PRAGMA table_info(rejected_match_audit)"
   };
   const statement = pragmaByTable[tableName];
   if (!statement) {
