@@ -43,9 +43,10 @@ function createBotMock(deliveries: string[]): BotController {
     },
     async sendStartupDiagnostic(): Promise<void> {},
     async sendAdminAlert(): Promise<boolean> {
-      return true;
-    }
-  };
+            return true;
+        },
+        async sendOwnerReport(): Promise<boolean> { return true; }
+    };
 }
 
 function recentMessageDate(): string {

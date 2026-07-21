@@ -62,7 +62,8 @@ export type SchemaTableName =
   | "user_daily_digest_deliveries"
   | "channel_discovery_runs"
   | "channel_discovery_candidates"
-  | "channel_discovery_checks";
+  | "channel_discovery_checks"
+  | "owner_report_delivery";
 
 export function createBaseSchema(db: SqliteDatabase): void {
   db.exec(`
@@ -485,6 +486,16 @@ export function createBaseSchema(db: SqliteDatabase): void {
   `);
 }
 
+function ensureOwnerReportDeliveryTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS owner_report_delivery (
+      report_week TEXT PRIMARY KEY,
+      delivered_at TEXT NOT NULL,
+      period INTEGER NOT NULL DEFAULT 7
+    );
+  `);
+}
+
 export function runMigrations(db: SqliteDatabase): void {
   ensureUserSettingsColumns(db);
   ensureRawMessagesColumns(db);
@@ -504,6 +515,7 @@ export function runMigrations(db: SqliteDatabase): void {
   ensureUserDailyDigestDeliveriesTable(db);
   ensureChannelAlertStateTable(db);
   ensureChannelDiscoveryTables(db);
+  ensureOwnerReportDeliveryTable(db);
 }
 
 function ensureUserSettingsColumns(db: SqliteDatabase): void {
@@ -1309,7 +1321,8 @@ export function getSchemaTableColumns(db: SqliteDatabase, tableName: SchemaTable
     channel_discovery_runs: "PRAGMA table_info(channel_discovery_runs)",
     channel_discovery_candidates: "PRAGMA table_info(channel_discovery_candidates)"
     ,
-    channel_discovery_checks: "PRAGMA table_info(channel_discovery_checks)"
+    channel_discovery_checks: "PRAGMA table_info(channel_discovery_checks)",
+    owner_report_delivery: "PRAGMA table_info(owner_report_delivery)"
   };
   const statement = pragmaByTable[tableName];
   if (!statement) {

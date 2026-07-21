@@ -87,6 +87,7 @@ export interface BotController {
     sendNoNewVacanciesNotification(userId: string, payload: EmptyCycleNotificationPayload): Promise<boolean>;
     sendStartupDiagnostic(payload: StartupDiagnosticPayload): Promise<void>;
     sendAdminAlert(text: string): Promise<boolean>;
+    sendOwnerReport(text: string): Promise<boolean>;
 }
 const ADMIN_CHANNELS_PAGE_SIZE = 8;
 const COMPANY_CAREER_SOURCES_PAGE_SIZE = 6;
@@ -3505,6 +3506,19 @@ export function createBotController(
         },
         async sendAdminAlert(text) {
             return sendAdminAlertMessage(text, "Failed to send admin alert message.");
+        },
+        async sendOwnerReport(text) {
+            if (!config.ownerUserId) {
+                return false;
+            }
+            try {
+                await bot.api.sendMessage(config.ownerUserId, text);
+                return true;
+            }
+            catch (error) {
+                loggerModule.logger.warn({ err: error, ownerUserId: config.ownerUserId }, "Failed to send weekly owner report.");
+                return false;
+            }
         }
     };
 }

@@ -3868,6 +3868,22 @@ export class VacancyDatabase {
       .run(userId, digestDate, scheduledFor, nextAttemptAt, error.slice(0, 1000), timestamp, timestamp);
   }
 
+  getOwnerReportDelivery(weekKey: string): { deliveredAt: string; period: number } | null {
+    const row = this.getDb()
+      .prepare("SELECT delivered_at, period FROM owner_report_delivery WHERE report_week = ? LIMIT 1")
+      .get(weekKey) as { delivered_at: string; period: number } | undefined;
+    if (!row) return null;
+    return { deliveredAt: row.delivered_at, period: row.period };
+  }
+
+  markOwnerReportDelivered(weekKey: string, period: number, deliveredAt: string): void {
+    this.getDb()
+      .prepare(
+        "INSERT INTO owner_report_delivery (report_week, delivered_at, period) VALUES (?, ?, ?)"
+      )
+      .run(weekKey, deliveredAt, period);
+  }
+
   setUserWeeklyPageSize(userId: string, pageSize: number): void {
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 5) {
       throw new Error("Weekly page size must be an integer from 1 to 5.");
