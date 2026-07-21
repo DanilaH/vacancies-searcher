@@ -615,6 +615,32 @@ export class VacancyDatabase {
     return row?.count ?? 0;
   }
 
+  countAnalyticsEventsSince(eventName: AnalyticsEventRecord["eventName"], sinceIso: string): number {
+    const row = this.getDb()
+      .prepare("SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = ? AND occurred_at >= ?")
+      .get(eventName, sinceIso) as CountRow | undefined;
+    return row?.count ?? 0;
+  }
+
+  countDistinctAnalyticsUsersSince(sinceIso: string): number {
+    const row = this.getDb()
+      .prepare("SELECT COUNT(DISTINCT distinct_id) AS count FROM analytics_events WHERE occurred_at >= ?")
+      .get(sinceIso) as CountRow | undefined;
+    return row?.count ?? 0;
+  }
+
+  countAnalyticsStatusChangesSince(status: string, sinceIso: string): number {
+    const row = this.getDb()
+      .prepare(
+        `SELECT COUNT(*) AS count FROM analytics_events
+         WHERE event_name = 'vacancy_status_changed'
+           AND json_extract(properties_json, '$.next_status') = ?
+           AND occurred_at >= ?`
+      )
+      .get(status, sinceIso) as CountRow | undefined;
+    return row?.count ?? 0;
+  }
+
   cleanupTechnicalData(now = new Date()): TechnicalDataCleanupSummary {
     const db = this.getDb();
     const cutoffIso = (retentionDays: number) =>
