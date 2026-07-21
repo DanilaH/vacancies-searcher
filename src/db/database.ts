@@ -149,6 +149,16 @@ export type ChannelDiscoveryRunCreateInput = {
   providerWarnings?: string[];
 };
 
+export interface ChannelPerformanceRow {
+  sourceName: string;
+  sourceChannel: string;
+  vacancyCount: number;
+  matchCount: number;
+  savedCount: number;
+  hiddenCount: number;
+  applicationCount: number;
+}
+
 export type RecentRawMessageReference = {
   sourceChannel: string;
   text: string;
@@ -2264,6 +2274,68 @@ export class VacancyDatabase {
       .all(since) as VacancyRow[];
 
     return rows.map((row) => mapVacancy(row));
+  }
+
+  listChannelPerformance(sinceIso: string, untilIso: string, limit = 10): ChannelPerformanceRow[] {
+    const db = this.getDb();
+    const safeLimit = Math.max(1, limit);
+    const rows = db
+      .prepare(
+        `
+          SELECT
+            v.source_name,
+            v.source_channel,
+            COUNT(DISTINCT v.id) AS vacancy_count,
+            COALESCE(SUM(m.match_count), 0) AS match_count,
+            COALESCE(SUM(s.saved_count), 0) AS saved_count,
+            COALESCE(SUM(s.hidden_count), 0) AS hidden_count,
+            COALESCE(SUM(a.application_count), 0) AS application_count
+          FROM vacancies v
+          LEFT JOIN (
+            SELECT vacancy_id, COUNT(*) AS match_count
+            FROM user_vacancy_matches
+            WHERE created_at >= ? AND created_at <= ?
+            GROUP BY vacancy_id
+          ) m ON m.vacancy_id = v.id
+          LEFT JOIN (
+            SELECT vacancy_id,
+              COUNT(CASE WHEN status = 'saved' THEN 1 END) AS saved_count,
+              COUNT(CASE WHEN status = 'hidden' THEN 1 END) AS hidden_count
+            FROM user_vacancy_states
+            WHERE updated_at >= ? AND updated_at <= ?
+            GROUP BY vacancy_id
+          ) s ON s.vacancy_id = v.id
+          LEFT JOIN (
+            SELECT vacancy_id, COUNT(*) AS application_count
+            FROM user_vacancy_applications
+            WHERE created_at >= ? AND created_at <= ?
+            GROUP BY vacancy_id
+          ) a ON a.vacancy_id = v.id
+          WHERE v.created_at >= ? AND v.created_at <= ?
+          GROUP BY v.source_name, v.source_channel
+          ORDER BY match_count DESC, vacancy_count DESC
+          LIMIT ?
+        `
+      )
+      .all(sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, sinceIso, untilIso, safeLimit) as Array<{
+      source_name: string;
+      source_channel: string;
+      vacancy_count: number;
+      match_count: number;
+      saved_count: number;
+      hidden_count: number;
+      application_count: number;
+    }>;
+
+    return rows.map((row) => ({
+      sourceName: row.source_name,
+      sourceChannel: row.source_channel,
+      vacancyCount: row.vacancy_count,
+      matchCount: row.match_count,
+      savedCount: row.saved_count,
+      hiddenCount: row.hidden_count,
+      applicationCount: row.application_count
+    }));
   }
 
   canReplaceVacancyAggregate(vacancyId: number): boolean {
