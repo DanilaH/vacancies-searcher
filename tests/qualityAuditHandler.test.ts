@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as grammy from "grammy";
 
 import { VacancyDatabase } from "../src/db/database";
 import { createTestConfig } from "./helpers";
-import { handleQualityAuditCommand, handleAuditVerdictCallback } from "../src/bot/qualityAuditHandler";
+import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback, isValidAuditVerdict } from "../src/bot/qualityAuditHandler";
 
 const NOW = new Date();
 const daysAgo = (n: number): string => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
@@ -43,9 +44,27 @@ function makeVacancy(database: VacancyDatabase, text: string, messageId: string,
   return result.vacancy.id;
 }
 
-function makeAuditRecord(database: VacancyDatabase, userId: string, vacancyId: number, score = 0, reason = "test_reason"): void {
+function makeAuditRecord(database: VacancyDatabase, userId: string, vacancyId: number, score: number | null = 0, reason: string | null = "test_reason"): void {
   database.saveRejectedAuditCandidate(userId, vacancyId, score, reason);
 }
+
+// ─── isValidAuditVerdict ─────────────────────────────────────────────────────
+
+test("isValidAuditVerdict accepts missed_relevant", () => {
+  assert.equal(isValidAuditVerdict("missed_relevant"), true);
+});
+
+test("isValidAuditVerdict accepts correct_rejection", () => {
+  assert.equal(isValidAuditVerdict("correct_rejection"), true);
+});
+
+test("isValidAuditVerdict rejects invalid values", () => {
+  assert.equal(isValidAuditVerdict(""), false);
+  assert.equal(isValidAuditVerdict("relevant"), false);
+  assert.equal(isValidAuditVerdict("missed_relevan"), false);
+  assert.equal(isValidAuditVerdict("correct"), false);
+  assert.equal(isValidAuditVerdict(" "), false);
+});
 
 // ─── DB method tests ─────────────────────────────────────────────────────────
 
@@ -72,6 +91,19 @@ test("getOldestUnreviewedAuditWithVacancy returns joined record with vacancy dat
   assert.equal(record.resolution, "rejected");
   assert.equal(record.reviewedAt, null);
   assert.equal(record.verdict, null);
+
+  database.close();
+});
+
+test("getOldestUnreviewedAuditWithVacancy returns null score when audit score is NULL", () => {
+  const { database } = createDatabase();
+  const vid = makeVacancy(database, "Vacancy with no score", "1001n", "ch", daysAgo(1));
+  makeAuditRecord(database, "777", vid, null, "no_score_test");
+
+  const record = database.getOldestUnreviewedAuditWithVacancy("777");
+  assert.notEqual(record, null);
+  assert.equal(record!.score, null);
+  assert.equal(record!.reason, "no_score_test");
 
   database.close();
 });
@@ -149,6 +181,14 @@ test("setAuditVerdict accepts missed_relevant and correct_rejection", () => {
   database.close();
 });
 
+test("setAuditVerdict rejects invalid verdict with error", () => {
+  const { database } = createDatabase();
+  assert.throws(() => {
+    database.setAuditVerdict("777", 1, "invalid_verdict");
+  });
+  database.close();
+});
+
 // ─── Handler command tests ───────────────────────────────────────────────────
 
 test("handleQualityAuditCommand replies with access denied for non-owner", async () => {
@@ -205,6 +245,25 @@ test("handleQualityAuditCommand shows audit card with buttons when records exist
   assert.ok(buttons.some((b) => b.text.includes("Не подходит")));
   assert.ok(buttons.some((b) => b.callback_data.includes(`qualityaudit:verdict:${vid}:missed_relevant`)));
   assert.ok(buttons.some((b) => b.callback_data.includes(`qualityaudit:verdict:${vid}:correct_rejection`)));
+
+  database.close();
+});
+
+test("handleQualityAuditCommand card does not show score when score is null", async () => {
+  const { database, config } = createDatabase("777");
+  const vid = makeVacancy(database, "Null score vacancy", "5001n", "ch", daysAgo(2));
+  makeAuditRecord(database, "777", vid, null, "no_score");
+
+  let replyText = "";
+  const ctx = {
+    from: { id: 777 },
+    reply: async (text: string, _opts?: unknown) => { replyText = text; }
+  } as never;
+
+  await handleQualityAuditCommand(ctx, database, config);
+  assert.ok(!replyText.includes("оценка: 0"));
+  assert.ok(replyText.includes("no_score"));
+  assert.ok(replyText.includes("Null score vacancy"));
 
   database.close();
 });
@@ -379,6 +438,154 @@ test("handleAuditVerdictCallback rejects invalid callback data pattern", async (
 
   await handleAuditVerdictCallback(ctx, database, config);
   assert.ok(answerText.includes("Некорректные данные"));
+
+  database.close();
+});
+
+test("handleAuditVerdictCallback answers on DB error", async () => {
+  const { database, config } = createDatabase("777");
+  const vid = makeVacancy(database, "DB error test", "7007", "ch", daysAgo(1));
+  makeAuditRecord(database, "777", vid);
+
+  const brokenDb = {
+    hasOwnerAccess: (id?: number | bigint | string): boolean => id === 777 || String(id) === "777",
+    setAuditVerdict: (_uid: string, _vid: number, _v: string): boolean => { throw new Error("simulated DB failure"); },
+    countUnreviewedRejectedAudit: (_uid: string): number => 0,
+    getOldestUnreviewedAuditWithVacancy: (_uid: string) => null
+  } as unknown as VacancyDatabase;
+
+  let answerText = "";
+  const ctx = {
+    from: { id: 777 },
+    callbackQuery: { id: "cb1", message: { reply_markup: {} } },
+    match: [`qualityaudit:verdict:${vid}:missed_relevant`, String(vid), "missed_relevant"],
+    answerCallbackQuery: async (opts?: { text?: string }) => { answerText = opts?.text ?? ""; },
+    editMessageReplyMarkup: async () => {},
+    reply: async () => {}
+  } as never;
+
+  await handleAuditVerdictCallback(ctx, brokenDb, config);
+  assert.ok(answerText.includes("Не удалось сохранить оценку"));
+
+  database.close();
+});
+
+// ─── Catch-all handler tests ─────────────────────────────────────────────────
+
+test("handleMalformedAuditCallback answers with error", async () => {
+  let answerText = "";
+  const ctx = {
+    from: { id: 777 },
+    callbackQuery: { id: "cb1" },
+    answerCallbackQuery: async (opts?: { text?: string }) => { answerText = opts?.text ?? ""; }
+  } as never;
+
+  await handleMalformedAuditCallback(ctx);
+  assert.ok(answerText.includes("Некорректный запрос аудита"));
+});
+
+// ─── Integration test via real bot callback routing ──────────────────────────
+
+test("malformed qualityaudit callback gets answer via catch-all route", async () => {
+  const { database, config } = createDatabase("777");
+  const vid = makeVacancy(database, "Integration test", "8001", "ch", daysAgo(1));
+  makeAuditRecord(database, "777", vid);
+
+  const bot = new grammy.Bot("test:token", {
+    botInfo: {
+      id: 123456, is_bot: true, first_name: "TestBot", username: "test_bot",
+      can_join_groups: false, can_read_all_group_messages: false,
+      can_manage_bots: false, supports_inline_queries: false,
+      can_connect_to_business: false, has_main_web_app: false,
+      has_topics_enabled: false, allows_users_to_create_topics: false
+    }
+  });
+
+  let lastCbAnswer: string | undefined;
+  bot.api.config.use((_prev, method, payload) => {
+    if (method === "answerCallbackQuery") {
+      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
+      return Promise.resolve({ ok: true, result: true }) as never;
+    }
+    return Promise.resolve({ ok: true, result: {} }) as never;
+  });
+
+  // Register the same handlers as in createBot
+  bot.command("qualityaudit", async (ctx) => {
+    await handleQualityAuditCommand(ctx, database, config);
+  });
+  bot.callbackQuery(/^qualityaudit:verdict:(\d+):(missed_relevant|correct_rejection)$/, async (ctx) => {
+    await handleAuditVerdictCallback(ctx, database, config);
+  });
+  bot.callbackQuery(/^qualityaudit:/, async (ctx) => {
+    await handleMalformedAuditCallback(ctx);
+  });
+
+  // Malformed callback with non-numeric vacancyId
+  await bot.handleUpdate({
+    update_id: 1,
+    callback_query: {
+      id: "cb_malformed",
+      from: { id: 777, is_bot: false, first_name: "Owner", language_code: "en" },
+      message: {
+        message_id: 1,
+        date: Math.floor(Date.now() / 1000),
+        text: "test card",
+        chat: { id: 777, type: "private" as const, first_name: "Owner" },
+        from: { id: 777, is_bot: false, first_name: "Owner", language_code: "en" }
+      },
+      data: "qualityaudit:verdict:abc:missed_relevant",
+      chat_instance: "test"
+    }
+  });
+  assert.ok(lastCbAnswer?.includes("Некорректный запрос аудита"));
+
+  database.close();
+});
+
+test("malformed qualityaudit prefix callback gets answer", async () => {
+  const { database, config } = createDatabase("777");
+
+  const bot = new grammy.Bot("test:token", {
+    botInfo: {
+      id: 123456, is_bot: true, first_name: "TestBot", username: "test_bot",
+      can_join_groups: false, can_read_all_group_messages: false,
+      can_manage_bots: false, supports_inline_queries: false,
+      can_connect_to_business: false, has_main_web_app: false,
+      has_topics_enabled: false, allows_users_to_create_topics: false
+    }
+  });
+
+  let lastCbAnswer: string | undefined;
+  bot.api.config.use((_prev, method, payload) => {
+    if (method === "answerCallbackQuery") {
+      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
+      return Promise.resolve({ ok: true, result: true }) as never;
+    }
+    return Promise.resolve({ ok: true, result: {} }) as never;
+  });
+
+  bot.callbackQuery(/^qualityaudit:/, async (ctx) => {
+    await handleMalformedAuditCallback(ctx);
+  });
+
+  await bot.handleUpdate({
+    update_id: 2,
+    callback_query: {
+      id: "cb_unknown",
+      from: { id: 777, is_bot: false, first_name: "Owner", language_code: "en" },
+      message: {
+        message_id: 2,
+        date: Math.floor(Date.now() / 1000),
+        text: "unknown card",
+        chat: { id: 777, type: "private" as const, first_name: "Owner" },
+        from: { id: 777, is_bot: false, first_name: "Owner", language_code: "en" }
+      },
+      data: "qualityaudit:something:else",
+      chat_instance: "test"
+    }
+  });
+  assert.ok(lastCbAnswer?.includes("Некорректный запрос аудита"));
 
   database.close();
 });

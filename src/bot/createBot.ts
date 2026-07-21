@@ -36,7 +36,7 @@ import { ActionCooldown } from "../services/actionCooldown";
 import { handleChannelReportCommand } from "./channelReportHandler";
 import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
-import { handleQualityAuditCommand, handleAuditVerdictCallback } from "./qualityAuditHandler";
+import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
 import { processRelevanceFeedback } from "./relevanceFeedbackHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
@@ -1327,6 +1327,9 @@ export function createBotController(
     });
     bot.callbackQuery(/^qualityaudit:verdict:(\d+):(missed_relevant|correct_rejection)$/, async (ctx) => {
         await handleAuditVerdictCallback(ctx, database, config);
+    });
+    bot.callbackQuery(/^qualityaudit:/, async (ctx) => {
+        await handleMalformedAuditCallback(ctx);
     });
     bot.callbackQuery(/^report:period:(\d+)$/, async (ctx) => {
         if (!(await ensureOwnerAccess(ctx))) {

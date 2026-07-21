@@ -36,6 +36,7 @@ import {
   MonitoredChannel,
   MonitoredChannelPage,
   OnboardingStep,
+  RejectedAuditVacancyRecord,
   RejectedMatchAuditRecord,
   RuntimeSettingKey,
   SearchProfileWeeklyStats,
@@ -1400,7 +1401,7 @@ export class VacancyDatabase {
 
   getOldestUnreviewedAuditWithVacancy(
     userId: string
-  ): (RejectedMatchAuditRecord & VacancyRecord) | null {
+  ): RejectedAuditVacancyRecord | null {
     const row = this.getDb()
       .prepare(
         `SELECT
@@ -1449,7 +1450,7 @@ export class VacancyDatabase {
       userId: row.user_id,
       vacancyId: row.vacancy_id,
       resolution: row.resolution,
-      score: row.score ?? 0,
+      score: row.score,
       reason: row.reason,
       decidedAt: row.decided_at,
       reviewedAt: row.reviewed_at,
@@ -1474,6 +1475,9 @@ export class VacancyDatabase {
   }
 
   setAuditVerdict(userId: string, vacancyId: number, verdict: string): boolean {
+    if (verdict !== "missed_relevant" && verdict !== "correct_rejection") {
+      throw new Error(`Invalid audit verdict: ${verdict}`);
+    }
     const result = this.getDb()
       .prepare(
         `UPDATE rejected_match_audit
