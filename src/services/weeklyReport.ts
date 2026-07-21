@@ -1,10 +1,20 @@
+import { InlineKeyboard } from "grammy";
+
 import type { VacancyDatabase } from "../db/database";
 
-const REPORT_WINDOW_DAYS = 7;
+export const REPORT_PERIOD_OPTIONS = [7, 14, 30] as const;
 
-export function buildWeeklyReport(database: VacancyDatabase, now = new Date()): string {
+export type ReportPeriod = (typeof REPORT_PERIOD_OPTIONS)[number];
+
+const PERIOD_LABELS: Record<ReportPeriod, string> = {
+  7: "7 дней",
+  14: "14 дней",
+  30: "30 дней"
+};
+
+export function buildWeeklyReport(database: VacancyDatabase, now = new Date(), period: ReportPeriod = 7): string {
   const until = now.toISOString();
-  const since = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(now.getTime() - period * 24 * 60 * 60 * 1000).toISOString();
 
   const newUsers = database.countDistinctAnalyticsUserIdsSince("user_started", since, until);
   const onboardingCompleted = database.countDistinctAnalyticsUserIdsSince("onboarding_completed", since, until);
@@ -17,7 +27,7 @@ export function buildWeeklyReport(database: VacancyDatabase, now = new Date()): 
   const hidden = database.countAnalyticsStatusChangesSince("hidden", since, until);
 
   const lines: string[] = [
-    "📊 Отчёт за 7 дней",
+    `📊 Отчёт за ${PERIOD_LABELS[period].toLowerCase()}`,
     "",
     `👥 Новые пользователи: ${newUsers}`,
     `✅ Завершили настройку: ${onboardingCompleted}`,
@@ -33,4 +43,13 @@ export function buildWeeklyReport(database: VacancyDatabase, now = new Date()): 
   ];
 
   return lines.join("\n");
+}
+
+export function buildReportKeyboard(selectedPeriod: ReportPeriod): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const option of REPORT_PERIOD_OPTIONS) {
+    const label = option === selectedPeriod ? `✅ ${PERIOD_LABELS[option]}` : PERIOD_LABELS[option];
+    keyboard.text(label, `report:period:${option}`);
+  }
+  return keyboard;
 }
