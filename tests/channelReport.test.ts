@@ -41,6 +41,7 @@ function setupTestUsers(database: VacancyDatabase): void {
   }
   database.addOrActivateBotUser("777", "owner", "777");
   database.addOrActivateBotUser("888", "admin", "777");
+  database.addOrActivateBotUser("999", "member", "777");
   database.addOrActivateBotUser("admin1", "admin", "777");
   database.addOrActivateBotUser("owner1", "owner", "777");
 }
@@ -392,7 +393,7 @@ test("channelreport handler sends report to owner, denies admin and member", asy
 
   lastReplyText = undefined;
   listChannelPerformanceCallCount = 0;
-  await bot.handleUpdate(makeUpdate(999, "Stranger"));
+  await bot.handleUpdate(makeUpdate(999, "Member"));
   assert.equal(listChannelPerformanceCallCount, 0, "listChannelPerformance must NOT be called for member");
   assert.ok((lastReplyText as string | undefined)?.includes("🔒"), "member must be denied");
 
