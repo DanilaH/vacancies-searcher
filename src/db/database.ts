@@ -681,6 +681,26 @@ export class VacancyDatabase {
     return row?.count ?? 0;
   }
 
+  countCohortActivityUsers(
+    cohortUserIds: string[],
+    eventNames: string[],
+    sinceIso: string,
+    untilIso: string
+  ): number {
+    if (cohortUserIds.length === 0 || eventNames.length === 0) return 0;
+    const placeholders = cohortUserIds.map(() => "?").join(",");
+    const eventPlaceholders = eventNames.map(() => "?").join(",");
+    const row = this.getDb()
+      .prepare(
+        `SELECT COUNT(DISTINCT user_id) AS count FROM analytics_events
+         WHERE user_id IN (${placeholders})
+           AND event_name IN (${eventPlaceholders})
+           AND occurred_at >= ? AND occurred_at < ?`
+      )
+      .get(...cohortUserIds, ...eventNames, sinceIso, untilIso) as CountRow | undefined;
+    return row?.count ?? 0;
+  }
+
   cleanupTechnicalData(now = new Date()): TechnicalDataCleanupSummary {
     const db = this.getDb();
     const cutoffIso = (retentionDays: number) =>
