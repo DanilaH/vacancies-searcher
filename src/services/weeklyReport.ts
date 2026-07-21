@@ -53,3 +53,20 @@ export function buildReportKeyboard(selectedPeriod: ReportPeriod): InlineKeyboar
   }
   return keyboard;
 }
+
+interface MessageLike {
+  reply_markup?: {
+    inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>;
+  };
+}
+
+export function isPeriodSelectedInMessage(msg: MessageLike, period: ReportPeriod): boolean {
+  for (const row of msg.reply_markup?.inline_keyboard ?? []) {
+    for (const btn of row) {
+      if (btn.callback_data === `report:period:${period}` && btn.text.startsWith("✅")) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

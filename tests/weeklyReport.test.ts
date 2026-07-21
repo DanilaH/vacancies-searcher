@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { VacancyDatabase } from "../src/db/database";
-import { buildWeeklyReport, buildReportKeyboard, REPORT_PERIOD_OPTIONS } from "../src/services/weeklyReport";
+import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS } from "../src/services/weeklyReport";
 import { createTestConfig } from "./helpers";
 
 function createDatabase(overrides: Partial<ReturnType<typeof createTestConfig>> = {}) {
@@ -373,4 +373,30 @@ test("hasOwnerAccess still works correctly when other users exist", () => {
   assert.equal(database.hasOwnerAccess("stranger"), false);
 
   database.close();
+});
+
+test("isPeriodSelectedInMessage detects already selected period", () => {
+  const keyboard7 = buildReportKeyboard(7);
+  const keyboard14 = buildReportKeyboard(14);
+  const keyboard30 = buildReportKeyboard(30);
+
+  const msg7 = { reply_markup: { inline_keyboard: keyboard7.inline_keyboard } };
+  const msg14 = { reply_markup: { inline_keyboard: keyboard14.inline_keyboard } };
+  const msg30 = { reply_markup: { inline_keyboard: keyboard30.inline_keyboard } };
+
+  assert.equal(isPeriodSelectedInMessage(msg7, 7), true);
+  assert.equal(isPeriodSelectedInMessage(msg7, 14), false);
+  assert.equal(isPeriodSelectedInMessage(msg7, 30), false);
+
+  assert.equal(isPeriodSelectedInMessage(msg14, 7), false);
+  assert.equal(isPeriodSelectedInMessage(msg14, 14), true);
+  assert.equal(isPeriodSelectedInMessage(msg14, 30), false);
+
+  assert.equal(isPeriodSelectedInMessage(msg30, 7), false);
+  assert.equal(isPeriodSelectedInMessage(msg30, 14), false);
+  assert.equal(isPeriodSelectedInMessage(msg30, 30), true);
+});
+
+test("isPeriodSelectedInMessage returns false for message without reply_markup", () => {
+  assert.equal(isPeriodSelectedInMessage({}, 7), false);
 });

@@ -33,7 +33,7 @@ import {
     parseHiddenVacancyReason
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
-import { buildWeeklyReport, buildReportKeyboard, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
+import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
 import { VacancyFilter } from "../services/vacancyFilter";
@@ -1301,6 +1301,11 @@ export function createBotController(
             return;
         }
         const period = periodValue as ReportPeriod;
+        const msg = ctx.callbackQuery.message;
+        if (msg && "reply_markup" in msg && isPeriodSelectedInMessage(msg, period)) {
+            await ctx.answerCallbackQuery();
+            return;
+        }
         try {
             const report = buildWeeklyReport(database, undefined, period);
             const keyboard = buildReportKeyboard(period);
