@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
 
       - run: npm test
+        shell: bash -e -O globstar {0}
 
       - run: npm run build
 
