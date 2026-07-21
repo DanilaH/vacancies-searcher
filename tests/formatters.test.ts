@@ -626,7 +626,7 @@ test("formatBlockedWeeklyAccess explains filled and missing profile sections", (
 
   const formatted = formatBlockedWeeklyAccess(profile, health);
 
-  assert.match(formatted, /🗂️ Вакансии за неделю пока недоступны/);
+  assert.match(formatted, /🗂️ Подборка вакансий пока недоступна/);
   assert.match(formatted, /У вас заполнено:/);
   assert.match(formatted, /• Условия и формат/);
   assert.match(formatted, /• Желательные сигналы/);

@@ -33,7 +33,7 @@ export function createMainKeyboard(showAdmin: boolean, showNotifications: boolea
   const keyboard = new InlineKeyboard();
 
   if (showWeekly) {
-    keyboard.text("🗂️ Вакансии за неделю", "week:0");
+    keyboard.text("🗂️ Подборка вакансий", "week:0");
   }
 
   if (showNotifications) {
@@ -256,7 +256,7 @@ export function createDiagnosticsKeyboard(
     .text("⚙️ Настройки", "menu:settings");
 
   if (showWeekly) {
-    keyboard.row().text("🗂️ Вакансии за неделю", "week:0");
+    keyboard.row().text("🗂️ Подборка вакансий", "week:0");
   }
 
   return keyboard
@@ -710,7 +710,7 @@ export function createOnboardingCompletionKeyboard(showAdmin: boolean, showWeekl
   const keyboard = new InlineKeyboard();
 
   if (showWeekly) {
-    keyboard.text("🗂️ Вакансии за неделю", "week:0").row();
+    keyboard.text("🗂️ Подборка вакансий", "week:0").row();
   }
 
   keyboard.text("🎯 Мои поиски", "menu:filters");
@@ -724,7 +724,7 @@ export function createOnboardingCompletionKeyboard(showAdmin: boolean, showWeekl
 
 export function createRematchSummaryKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🗂️ Вакансии за неделю", "week:0")
+    .text("🗂️ Подборка вакансий", "week:0")
     .row()
     .text("🎯 Мои поиски", "menu:filters")
     .row()
