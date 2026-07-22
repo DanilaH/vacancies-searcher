@@ -37,7 +37,7 @@ import { handleChannelReportCommand } from "./channelReportHandler";
 import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
-import { processRelevanceFeedback } from "./relevanceFeedbackHandler";
+import { handleVacancyRelevanceCallback, processRelevanceFeedback } from "./relevanceFeedbackHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -1740,6 +1740,10 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "⚠️ Не удалось обновить статус." });
             return;
         }
+        if (requestedStatus === "hidden" && !database.hasUserVacancyMatch(currentUserId, vacancyId)) {
+            await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
+            return;
+        }
         const previousStatus = database.getUserVacancyStatus(currentUserId, vacancyId);
         const nextStatus: VacancyUserStatus = previousStatus === requestedStatus ? "inbox" : requestedStatus;
         const activeReminder = database.getActiveUserVacancyReminder(currentUserId, vacancyId);
@@ -1810,11 +1814,6 @@ export function createBotController(
         if (nextStatus === "hidden") {
             const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
             if (result.kind === "forbidden") {
-                if (previousStatus === "inbox") {
-                    database.clearUserVacancyStatus(currentUserId, vacancyId);
-                } else {
-                    database.setUserVacancyStatus(currentUserId, vacancyId, previousStatus);
-                }
                 await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
                 return;
             }
@@ -1863,17 +1862,10 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "⚠️ Не удалось сохранить оценку." });
             return;
         }
-        const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-        if (result.kind === "unchanged") {
-            await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
+        const kind = await handleVacancyRelevanceCallback(ctx, database, analytics, currentUserId, vacancyId, value);
+        if (kind !== "recorded") {
             return;
         }
-        if (result.kind === "forbidden") {
-            await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
-            return;
-        }
-        await analytics.capture(result.event);
-        await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
         const vacancyRecord = buildVacancyMessageRecord(currentUserId, vacancyId);
         if (!vacancyRecord) {
             return;

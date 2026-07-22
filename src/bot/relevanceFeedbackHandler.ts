@@ -1,3 +1,5 @@
+import type * as grammy from "grammy";
+import type { AnalyticsService } from "../analytics/analyticsService";
 import type { VacancyDatabase } from "../db/database";
 import type { AnalyticsProperties, VacancyRelevanceValue } from "../types";
 
@@ -18,13 +20,13 @@ export function processRelevanceFeedback(
   vacancyId: number,
   value: VacancyRelevanceValue
 ): ProcessResult {
+  if (!database.hasUserVacancyMatch(userId, vacancyId)) {
+    return { kind: "forbidden" };
+  }
+
   const existing = database.getVacancyRelevanceFeedback(userId, vacancyId);
   if (existing === value) {
     return { kind: "unchanged" };
-  }
-
-  if (!database.hasUserVacancyMatch(userId, vacancyId)) {
-    return { kind: "forbidden" };
   }
 
   const vacancy = database.getVacancy(vacancyId);
@@ -44,4 +46,26 @@ export function processRelevanceFeedback(
       }
     }
   };
+}
+
+export async function handleVacancyRelevanceCallback(
+  ctx: grammy.Context,
+  database: VacancyDatabase,
+  analytics: AnalyticsService,
+  currentUserId: string,
+  vacancyId: number,
+  value: "relevant"
+): Promise<ProcessResult["kind"]> {
+  const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
+
+  if (result.kind === "unchanged") {
+    await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
+  } else if (result.kind === "forbidden") {
+    await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
+  } else {
+    await analytics.capture(result.event);
+    await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
+  }
+
+  return result.kind;
 }

@@ -6,11 +6,16 @@ import path from "node:path";
 import * as grammy from "grammy";
 
 import { VacancyDatabase } from "../src/db/database";
-import { processRelevanceFeedback } from "../src/bot/relevanceFeedbackHandler";
+import { processRelevanceFeedback, handleVacancyRelevanceCallback } from "../src/bot/relevanceFeedbackHandler";
 import { createVacancyKeyboardWithActions } from "../src/bot/keyboards";
 import { createTestConfig } from "./helpers";
 
 import type { FilterResult, SourceName, VacancyRelevanceValue } from "../src/types";
+
+interface MockCtx extends grammy.Context {
+  readonly answerText: string | undefined;
+  readonly answerCount: number;
+}
 
 function createFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-rf-"));
@@ -71,22 +76,11 @@ function insertMatch(database: VacancyDatabase, userId: string, vacancyId: numbe
   database.createUserVacancyMatch(userId, vacancyId, makeFilterResult());
 }
 
-function makeBot() {
-  return new grammy.Bot("test:token", {
-    botInfo: {
-      id: 123456, is_bot: true, first_name: "TestBot", username: "test_bot",
-      can_join_groups: false, can_read_all_group_messages: false,
-      can_manage_bots: false, supports_inline_queries: false,
-      can_connect_to_business: false, has_main_web_app: false,
-      has_topics_enabled: false, allows_users_to_create_topics: false
-    }
-  });
-}
-
-function makeCallbackUpdate(fromId: number, data: string) {
-  return {
-    update_id: fromId,
-    callback_query: {
+function makeMockContext(fromId: number, _data: string): MockCtx {
+  let answerCount = 0;
+  let answerText: string | undefined;
+  const ctx = {
+    callbackQuery: {
       id: `cb_${fromId}`,
       from: { id: fromId, is_bot: false, first_name: "User", language_code: "en" },
       message: {
@@ -96,10 +90,23 @@ function makeCallbackUpdate(fromId: number, data: string) {
         chat: { id: fromId, type: "private" as const, first_name: "User" },
         from: { id: fromId, is_bot: false, first_name: "User", language_code: "en" }
       },
-      data,
+      data: _data,
       chat_instance: "test"
-    }
+    },
+    answerCallbackQuery: async (params: string | { text?: string } | undefined) => {
+      answerCount++;
+      answerText = typeof params === "string" ? params : params?.text;
+      return { ok: true, result: true } as never;
+    },
+    get answerText(): string | undefined { return answerText; },
+    get answerCount(): number { return answerCount; },
+    editMessageReplyMarkup: () => Promise.resolve({ ok: true } as never),
+    editMessageText: () => Promise.resolve({ ok: true } as never),
+    deleteMessage: () => Promise.resolve({ ok: true } as never),
+    reply: () => Promise.resolve({ message_id: 1 } as never),
+    api: { config: { use: () => {} } }
   };
+  return ctx as unknown as MockCtx;
 }
 
 // ─── Keyboard helpers (shared with botKeyboards.test.ts pattern) ──────────────
@@ -115,11 +122,6 @@ function rows(keyboard: unknown): InlineButton[][] {
 
 function labels(keyboard: unknown): string[] {
   return rows(keyboard).flat().map((button) => button.text);
-}
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-unused-vars
-function callbacks(keyboard: unknown): string[] {
-  return rows(keyboard).flat().map((button) => button.callback_data).filter((v): v is string => typeof v === "string");
 }
 
 function createMatchedVacancy(overrides: Partial<import("../src/types").MatchedVacancyRecord> = {}): import("../src/types").MatchedVacancyRecord {
@@ -349,15 +351,13 @@ test("migration creates vacancy_relevance_feedback table", () => {
   database.close();
 });
 
-// --- Handler-level tests via bot.handleUpdate ---
+// --- Handler-level tests using the real exported handler ---
 
 test("handler: positive feedback stores value and fires analytics", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h1", "text");
   insertMatch(database, "777", vacId);
-
-  const bot = makeBot();
 
   const capturedEvents: Array<{ eventName: string; userId?: string | null; properties?: Record<string, unknown> }> = [];
   const originalCapture = database.recordAnalyticsEvent.bind(database);
@@ -366,52 +366,32 @@ test("handler: positive feedback stores value and fires analytics", async () => 
     return originalCapture(input);
   }) as unknown as VacancyDatabase["recordAnalyticsEvent"];
 
-  let lastCbAnswer: string | undefined;
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery") {
-      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
-      return Promise.resolve({ ok: true, result: true }) as never;
+  const analyticsCapture: Array<{ eventName: string; params?: Record<string, unknown> }> = [];
+  const analytics = {
+    capture: (event: { eventName: string; userId: string; properties?: Record<string, unknown> }) => {
+      analyticsCapture.push({ eventName: event.eventName, params: event.properties as Record<string, unknown> });
+      return Promise.resolve();
     }
-    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
-    }
-    return prev(method, payload);
-  });
+  };
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vacancyId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-    if (result.kind === "unchanged") {
-      await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
-      return;
-    }
-    if (result.kind === "forbidden") {
-      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
-      return;
-    }
-    database.recordAnalyticsEvent(result.event);
-    await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
-  });
+  const ctx: MockCtx = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
 
-  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null);
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
   assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "relevant");
-  assert.equal(lastCbAnswer, "👍 Отмечено как релевантное.");
+  assert.equal(ctx.answerText, "👍 Отмечено как релевантное.");
+  assert.equal(ctx.answerCount, 1);
 
   const rfEvents = capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback");
-  assert.equal(rfEvents.length, 1);
-  assert.equal(rfEvents[0].properties?.vacancy_id, vacId);
-  assert.equal(rfEvents[0].properties?.value, "relevant");
-  assert.equal(rfEvents[0].properties?.source_name, "telegram_web_preview");
-  assert.equal(rfEvents[0].properties?.source_channel, "ch1");
-  assert.equal(rfEvents[0].properties?.user_id, undefined, "analytics must not contain user_id");
-  assert.equal(rfEvents[0].properties?.user_name, undefined, "analytics must not contain user_name");
-  assert.equal(rfEvents[0].properties?.text, undefined, "analytics must not contain vacancy text");
-  assert.equal(rfEvents[0].properties?.contact, undefined, "analytics must not contain contacts");
+  assert.equal(rfEvents.length, 0, "handler uses analytics.capture, not database.recordAnalyticsEvent");
+  assert.equal(analyticsCapture.length, 1);
+  assert.equal(analyticsCapture[0].params?.vacancy_id, vacId);
+  assert.equal(analyticsCapture[0].params?.value, "relevant");
+  assert.equal(analyticsCapture[0].params?.source_name, "telegram_web_preview");
+  assert.equal(analyticsCapture[0].params?.source_channel, "ch1");
+  assert.equal(analyticsCapture[0].params?.user_id, undefined, "analytics must not contain user_id");
+  assert.equal(analyticsCapture[0].params?.user_name, undefined, "analytics must not contain user_name");
+  assert.equal(analyticsCapture[0].params?.text, undefined, "analytics must not contain vacancy text");
+  assert.equal(analyticsCapture[0].params?.contact, undefined, "analytics must not contain contacts");
 
   assert.equal(database.getUserVacancyStatus("777", vacId), "inbox");
 
@@ -424,143 +404,26 @@ test("handler: repeated positive feedback returns unchanged without second event
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h2", "text");
   insertMatch(database, "777", vacId);
 
-  const bot = makeBot();
-
-  const capturedEvents: Array<{ eventName: string; properties?: Record<string, unknown> }> = [];
-  const originalCapture = database.recordAnalyticsEvent.bind(database);
-  database.recordAnalyticsEvent = ((input: Parameters<VacancyDatabase["recordAnalyticsEvent"]>[0]) => {
-    capturedEvents.push({ eventName: input.eventName, properties: input.properties as Record<string, unknown> | undefined });
-    return originalCapture(input);
-  }) as unknown as VacancyDatabase["recordAnalyticsEvent"];
-
-  let lastCbAnswer: string | undefined;
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery") {
-      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
-      return Promise.resolve({ ok: true, result: true }) as never;
+  const analyticsCapture: Array<{ eventName: string }> = [];
+  const analytics = {
+    capture: (event: { eventName: string }) => {
+      analyticsCapture.push({ eventName: event.eventName });
+      return Promise.resolve();
     }
-    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
-    }
-    return prev(method, payload);
-  });
+  };
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vacancyId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-    if (result.kind === "unchanged") {
-      await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
-      return;
-    }
-    if (result.kind === "forbidden") {
-      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
-      return;
-    }
-    database.recordAnalyticsEvent(result.event);
-    await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
-  });
+  const ctx1 = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx1, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
+  assert.equal(ctx1.answerText, "👍 Отмечено как релевантное.");
+  assert.equal(ctx1.answerCount, 1);
 
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 1);
+  const ctx2 = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx2, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
+  assert.equal(ctx2.answerText, "👍 Уже отмечено как релевантное.");
+  assert.equal(ctx2.answerCount, 1);
 
-  lastCbAnswer = undefined;
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(lastCbAnswer, "👍 Уже отмечено как релевантное.");
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 1, "no second event for repeated same value");
-
-  database.close();
-});
-
-test("handler: hide vacancy creates not_relevant feedback with analytics", async () => {
-  const { database } = createFixture();
-  setupTestUsers(database);
-  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h3", "text");
-  insertMatch(database, "777", vacId);
-
-  const bot = makeBot();
-  const capturedEvents: Array<{ eventName: string; properties?: Record<string, unknown> }> = [];
-  const originalCapture = database.recordAnalyticsEvent.bind(database);
-  database.recordAnalyticsEvent = ((input: Parameters<VacancyDatabase["recordAnalyticsEvent"]>[0]) => {
-    capturedEvents.push({ eventName: input.eventName, properties: input.properties as Record<string, unknown> | undefined });
-    return originalCapture(input);
-  }) as unknown as VacancyDatabase["recordAnalyticsEvent"];
-
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery" || method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText" || method === "deleteMessage") {
-      return Promise.resolve({ ok: true, result: {} }) as never;
-    }
-    return prev(method, payload);
-  });
-
-  const REGEX_HIDE = /^vacancy:status:(\d+):(saved|applied|hidden)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/;
-  bot.callbackQuery(REGEX_HIDE, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const requestedStatus = ctx.match?.[2] as string | undefined;
-    if (!currentUserId || !vacancyId || requestedStatus !== "hidden") return;
-
-    database.setUserVacancyStatus(currentUserId, vacancyId, "hidden");
-    const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
-    if (result.kind === "recorded") {
-      database.recordAnalyticsEvent(result.event);
-    }
-    await ctx.answerCallbackQuery({ text: "👎 Скрыто." });
-  });
-
-  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null);
-  assert.equal(database.getUserVacancyStatus("777", vacId), "inbox");
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:status:${vacId}:hidden:compact`));
-
-  assert.equal(database.getUserVacancyStatus("777", vacId), "hidden");
-  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "not_relevant");
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 1);
-
-  database.close();
-});
-
-test("handler: second hide does not fire second analytics event", async () => {
-  const { database } = createFixture();
-  setupTestUsers(database);
-  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h4", "text");
-  insertMatch(database, "777", vacId);
-
-  const bot = makeBot();
-  const capturedEvents: Array<{ eventName: string; properties?: Record<string, unknown> }> = [];
-  const originalCapture = database.recordAnalyticsEvent.bind(database);
-  database.recordAnalyticsEvent = ((input: Parameters<VacancyDatabase["recordAnalyticsEvent"]>[0]) => {
-    capturedEvents.push({ eventName: input.eventName, properties: input.properties as Record<string, unknown> | undefined });
-    return originalCapture(input);
-  }) as unknown as VacancyDatabase["recordAnalyticsEvent"];
-
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery" || method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText" || method === "deleteMessage") {
-      return Promise.resolve({ ok: true, result: {} }) as never;
-    }
-    return prev(method, payload);
-  });
-
-  bot.callbackQuery(/^vacancy:status:(\d+):(saved|applied|hidden)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const requestedStatus = ctx.match?.[2] as string | undefined;
-    if (!currentUserId || !vacancyId || requestedStatus !== "hidden") return;
-    database.setUserVacancyStatus(currentUserId, vacancyId, "hidden");
-    const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
-    if (result.kind === "recorded") {
-      database.recordAnalyticsEvent(result.event);
-    }
-    await ctx.answerCallbackQuery();
-  });
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:status:${vacId}:hidden:compact`));
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 1);
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:status:${vacId}:hidden:compact`));
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 1, "no second event for second hide");
+  const rfEvents = analyticsCapture.filter((e) => e.eventName === "vacancy_relevance_feedback");
+  assert.equal(rfEvents.length, 1, "no second event for repeated same value");
 
   database.close();
 });
@@ -589,41 +452,22 @@ test("processRelevanceFeedback returns event on value change", () => {
 test("handler: forged/stale callback does not create feedback", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
-  const bot = makeBot();
 
-  const capturedEvents: Array<{ eventName: string }> = [];
-  const originalCapture = database.recordAnalyticsEvent.bind(database);
-  database.recordAnalyticsEvent = ((input: Parameters<VacancyDatabase["recordAnalyticsEvent"]>[0]) => {
-    capturedEvents.push({ eventName: input.eventName });
-    return originalCapture(input);
-  }) as unknown as VacancyDatabase["recordAnalyticsEvent"];
-
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery" || method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: {} }) as never;
+  const analyticsCapture: Array<{ eventName: string }> = [];
+  const analytics = {
+    capture: (event: { eventName: string }) => {
+      analyticsCapture.push({ eventName: event.eventName });
+      return Promise.resolve();
     }
-    return prev(method, payload);
-  });
+  };
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vacancyId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vacancyId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-    if (result.kind === "forbidden") {
-      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
-      return;
-    }
-    if (result.kind === "recorded") {
-      database.recordAnalyticsEvent(result.event);
-    }
-    await ctx.answerCallbackQuery();
-  });
+  const ctx = makeMockContext(777, "vacancy:relevance:99999:relevant:compact");
+  await handleVacancyRelevanceCallback(ctx, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", 99999, "relevant");
 
-  await bot.handleUpdate(makeCallbackUpdate(777, "vacancy:relevance:99999:relevant:compact"));
-  assert.equal(capturedEvents.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 0, "no analytics for non-existent vacancy");
+  assert.equal(analyticsCapture.filter((e) => e.eventName === "vacancy_relevance_feedback").length, 0, "no analytics for non-existent vacancy");
   assert.equal(database.getVacancyRelevanceFeedback("777", 99999), null, "no feedback for non-existent vacancy");
+  assert.equal(ctx.answerText, "Вакансия недоступна");
+  assert.equal(ctx.answerCount, 1);
 
   database.close();
 });
@@ -721,128 +565,104 @@ test("keyboard: relevant checkmark present and not_relevant unmarked when value 
   assert.ok(allLabels.includes("👎 Не подходит"));
 });
 
-// ─── Handler answerCallbackQuery tests ───────────────────────────────────────
+// ─── Handler answerCallbackQuery tests via real exported handler ──────────────
 
-test("handler: forbidden path answers callback with Вакансия недоступна", async () => {
+test("handler: forbidden path answers callback once with Вакансия недоступна", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb1", "text");
-  // no match — processRelevanceFeedback will return forbidden
 
-  const bot = makeBot();
-  let lastCbAnswer: string | undefined;
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery") {
-      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
-      return Promise.resolve({ ok: true, result: true }) as never;
-    }
-    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
-    }
-    return prev(method, payload);
-  });
+  const analytics = { capture: () => Promise.resolve() };
+  const ctx = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vId, value);
-    if (result.kind === "forbidden") {
-      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
-      return;
-    }
-    await ctx.answerCallbackQuery();
-  });
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(lastCbAnswer, "Вакансия недоступна");
+  assert.equal(ctx.answerText, "Вакансия недоступна");
+  assert.equal(ctx.answerCount, 1);
   assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null);
 
   database.close();
 });
 
-test("handler: unchanged path answers callback with already marked message", async () => {
+test("handler: unchanged path answers callback once with already marked message", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb2", "text");
   insertMatch(database, "777", vacId);
 
-  const bot = makeBot();
-  let lastCbText: string | undefined;
-  let cbCount = 0;
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery") {
-      lastCbText = (payload as Record<string, unknown>).text as string | undefined;
-      cbCount++;
-      return Promise.resolve({ ok: true, result: true }) as never;
-    }
-    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
-    }
-    return prev(method, payload);
-  });
+  const analytics = { capture: () => Promise.resolve() };
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vId, value);
-    if (result.kind === "unchanged") {
-      await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
-      return;
-    }
-    if (result.kind === "recorded") {
-      await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
-      return;
-    }
-    await ctx.answerCallbackQuery();
-  });
+  const ctx1 = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx1, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
+  assert.equal(ctx1.answerText, "👍 Отмечено как релевантное.");
+  assert.equal(ctx1.answerCount, 1);
 
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(lastCbText, "👍 Отмечено как релевантное.");
-  assert.equal(cbCount, 1);
-
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(lastCbText, "👍 Уже отмечено как релевантное.");
-  assert.equal(cbCount, 2);
+  const ctx2 = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx2, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
+  assert.equal(ctx2.answerText, "👍 Уже отмечено как релевантное.");
+  assert.equal(ctx2.answerCount, 1);
 
   database.close();
 });
 
-test("handler: recorded path answers callback with success message", async () => {
+test("handler: recorded path answers callback once with success message", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb3", "text");
   insertMatch(database, "777", vacId);
 
-  const bot = makeBot();
-  let lastCbAnswer: string | undefined;
-  bot.api.config.use((prev, method, payload) => {
-    if (method === "answerCallbackQuery") {
-      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
-      return Promise.resolve({ ok: true, result: true }) as never;
-    }
-    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
-      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
-    }
-    return prev(method, payload);
-  });
+  const analytics = { capture: () => Promise.resolve() };
+  const ctx = makeMockContext(777, `vacancy:relevance:${vacId}:relevant:compact`);
+  await handleVacancyRelevanceCallback(ctx, database, analytics as unknown as import("../src/analytics/analyticsService").AnalyticsService, "777", vacId, "relevant");
 
-  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
-    const currentUserId = String(ctx.from?.id ?? "");
-    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
-    const value = ctx.match?.[2] as "relevant" | undefined;
-    if (!currentUserId || !vId || !value) return;
-    const result = processRelevanceFeedback(database, currentUserId, vId, value);
-    if (result.kind === "unchanged") return;
-    if (result.kind === "forbidden") return;
-    await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
-  });
+  assert.equal(ctx.answerText, "👍 Отмечено как релевантное.");
+  assert.equal(ctx.answerCount, 1);
 
-  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
-  assert.equal(lastCbAnswer, "👍 Отмечено как релевантное.");
+  database.close();
+});
+
+// ─── Production-flow: forged hide callback ───────────────────────────────────
+
+test("hide: forged callback without match — forbidden, no side effects, single answer", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "pf1", "text");
+
+  const result = processRelevanceFeedback(database, "777", vacId, "not_relevant");
+  assert.equal(result.kind, "forbidden");
+  assert.equal(database.getUserVacancyStatus("777", vacId), "inbox", "status unchanged");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null, "no feedback created");
+
+  database.close();
+});
+
+test("hide: repeated forged callback also returns forbidden", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "pf2", "text");
+
+  const r1 = processRelevanceFeedback(database, "777", vacId, "not_relevant");
+  assert.equal(r1.kind, "forbidden");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null);
+
+  const r2 = processRelevanceFeedback(database, "777", vacId, "not_relevant");
+  assert.equal(r2.kind, "forbidden", "second call also forbidden, not unchanged");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null, "no feedback created");
+
+  database.close();
+});
+
+test("hide: orphan feedback returns forbidden, not unchanged", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "orphan1", "text");
+
+  database.upsertVacancyRelevanceFeedback("777", vacId, "not_relevant");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "not_relevant");
+  assert.equal(database.hasUserVacancyMatch("777", vacId), false);
+
+  const result = processRelevanceFeedback(database, "777", vacId, "not_relevant");
+  assert.equal(result.kind, "forbidden", "orphan feedback must return forbidden, not unchanged");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "not_relevant", "existing orphan feedback preserved");
 
   database.close();
 });

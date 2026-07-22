@@ -91,9 +91,9 @@ Pending because generic parser did not confidently parse the sample:
 
 Known from recent work:
 
-- Full suite passed with 521 tests after `/qualityaudit` command (`npm test`).
-- `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed clean.
-- Full suite passed with 292 tests after applied workflow MVP (`npm test`).
+- Full suite passed with 557 tests (`npm test`), `tsc` clean, `build` clean.
+- PR #18 branch `fix/relevance-feedback-integrity` is pushed and open.
+- Focused relevance feedback check: `npx tsx --test tests/vacancyRelevanceFeedback.test.ts` (31 tests).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after applied workflow MVP.
 - Focused applied workflow checks passed: `node --import tsx --test tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts tests/botUsers.test.ts tests/inputFlowsRateLimit.test.ts` and `node --import tsx --test tests/userVacancyStatus.test.ts tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts`.
 - Full suite passed with 299 tests after applied workflow v2 (`npm test`).
@@ -148,9 +148,9 @@ npx tsc -p tsconfig.json --pretty false
 
 ## Git / Workspace Notes
 
-- Git metadata is available; `feat/quality-audit-review` is an active branch pushed to origin.
-- All changes from the `/qualityaudit` command work are committed and pushed.
-- PR #16 is open: `feat/quality-audit-review` → `master`.
+- Git metadata is available.
+- PR #17 (`feat/audit-quality-metrics` → `master`) merged.
+- PR #18 (`fix/relevance-feedback-integrity` → `master`) open and unmerged.
 
 ## Known Problems
 
