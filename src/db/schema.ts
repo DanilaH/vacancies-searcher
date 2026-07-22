@@ -13,6 +13,7 @@ const TRUSTED_VACANCY_SERVICE_ADAPTER_CHECK = [
   "'yandex_jobs'",
   "'ingamejob'",
   "'designer_ru'",
+  "'mts_jobs'",
   "'generic'"
 ].join(", ");
 
@@ -27,6 +28,7 @@ const TRUSTED_VACANCY_SERVICE_REQUIRED_ADAPTERS = [
   "'yandex_jobs'",
   "'ingamejob'",
   "'designer_ru'",
+  "'mts_jobs'",
   "'generic'"
 ];
 
@@ -852,6 +854,21 @@ function ensureTrustedVacancyServicesTable(db: SqliteDatabase): void {
     `UPDATE trusted_vacancy_services
      SET display_name = 'Designer.ru', adapter = 'designer_ru', parser_mode = 'json_ld_or_html'
      WHERE hostname = 'designer.ru'`
+  ).run();
+  db.prepare(
+    `INSERT OR IGNORE INTO trusted_vacancy_services (
+       hostname, display_name, adapter, status, parser_mode, example_url,
+       added_by_user_id, approved_by_user_id, created_at, updated_at
+     ) VALUES (
+       'job.mts.ru', 'MTS Jobs', 'mts_jobs', 'pending',
+       'specialized', 'https://job.mts.ru/vacancy/648199108112156868',
+       NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+     )`
+  ).run();
+  db.prepare(
+    `UPDATE trusted_vacancy_services
+     SET display_name = 'MTS Jobs', adapter = 'mts_jobs', parser_mode = 'specialized'
+     WHERE hostname = 'job.mts.ru'`
   ).run();
 }
 

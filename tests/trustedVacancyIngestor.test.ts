@@ -330,6 +330,122 @@ test("designer_ru: missing page prevents posting", async () => {
   fixture.database.close();
 });
 
+function createMtsJobsFixture(html: string, fetchOverride?: () => Promise<Response>) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-mts-jobs-ingestor-"));
+  const config = createTestConfig({
+    ownerUserId: "777",
+    ownerChatId: "777",
+    companyCareersRequestDelayMs: 0,
+    databasePath: path.join(tempDir, "bot.db"),
+    databaseUrl: `file:${path.join(tempDir, "bot.db")}`,
+    appDataDir: tempDir,
+    runtimeDir: path.join(tempDir, "runtime")
+  });
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setUserSearchProfileKeywords("777", "required_context", ["ai"]);
+  database.setUserSearchProfileKeywords("777", "required_primary", ["engineer"]);
+  const service = database.addTrustedVacancyService({
+    hostname: "job.mts.ru",
+    displayName: "MTS Jobs",
+    adapter: "mts_jobs",
+    exampleUrl: "https://job.mts.ru/vacancy/648199108112156868"
+  });
+  database.markTrustedVacancyServiceCheck(service.id, null);
+  database.setTrustedVacancyServiceStatus(service.id, "active", "777");
+  const deliveries: number[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(vacancy: MatchedVacancyRecord) { deliveries.push(vacancy.id); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: fetchOverride ?? (async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } }))
+  });
+  const ingestor = new VacancyIngestor(config, new VacancyFilter(config), database, bot, analytics, enricher);
+  return { database, analytics, ingestor, deliveries };
+}
+
+test("mts_jobs: valid vacancy page enriches and creates vacancy", async () => {
+  const validHtml = `<!DOCTYPE html><html lang="ru"><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Product",
+      "name": "Senior AI Engineer [KION GenAI]",
+      "description": "<p>Разработка и внедрение AI-решений.</p>",
+      "brand": "МТС",
+      "offers": {
+        "@type": "Offer",
+        "price": "з/п по договоренности"
+      }
+    }
+  ]
+}
+</script></head><body><h1>Senior AI Engineer [KION GenAI]</h1><main>SPA placeholder</main></body></html>`;
+  const fixture = createMtsJobsFixture(validHtml);
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-1",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
+    url: "https://t.me/itjobs/mts-jobs-1"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/648199108112156868");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("mts_jobs: missing page prevents posting", async () => {
+  const fixture = createMtsJobsFixture("Page not found");
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-404",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/999",
+    url: "https://t.me/itjobs/mts-jobs-404"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("mts_jobs: temporary network failure keeps Telegram-only vacancy", async () => {
+  const fixture = createMtsJobsFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-503",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
+    url: "https://t.me/itjobs/mts-jobs-503"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/648199108112156868");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
 test("designer_ru: temporary network failure keeps Telegram-only vacancy", async () => {
   const fixture = createDesignerRuFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
   const matched = await fixture.ingestor.handle({

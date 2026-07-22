@@ -436,3 +436,76 @@ test("database migration adds designer_ru adapter to trusted_vacancy_services", 
   database2.close();
   database.close();
 });
+
+test("database migration adds mts_jobs adapter to trusted_vacancy_services", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-legacy-mts-jobs-"));
+  const databasePath = path.join(tempDir, "bot.db");
+  const sqlite = new BetterSqlite3(databasePath);
+  // Old CHECK without 'mts_jobs'
+  sqlite.exec(`
+    CREATE TABLE trusted_vacancy_services (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hostname TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      parser_mode TEXT NOT NULL,
+      example_url TEXT NOT NULL,
+      last_checked_at TEXT,
+      last_success_at TEXT,
+      last_error TEXT,
+      added_by_user_id TEXT,
+      approved_by_user_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CHECK(adapter IN ('findmyremote', 'teletype', 'finder_work', 'telegraph', 'aviasales_careers', 'cloud_careers', 'tbank_careers', 'yandex_jobs', 'ingamejob', 'designer_ru', 'generic')),
+      CHECK(status IN ('pending', 'active', 'disabled')),
+      CHECK(parser_mode IN ('specialized', 'json_ld_or_html'))
+    );
+    INSERT INTO trusted_vacancy_services (hostname, display_name, adapter, status, parser_mode, example_url) VALUES
+      ('legacy.example.com', 'Legacy Example', 'generic', 'active', 'json_ld_or_html', 'https://legacy.example.com/job/1');
+    -- Simulate a user who manually added job.mts.ru before seed was updated
+    INSERT INTO trusted_vacancy_services (hostname, display_name, adapter, status, parser_mode, example_url) VALUES
+      ('job.mts.ru', 'MTS Jobs', 'generic', 'active', 'json_ld_or_html', 'https://job.mts.ru/vacancy/123');
+  `);
+  sqlite.close();
+
+  const database = new VacancyDatabase(
+    createTestConfig({ databasePath, databaseUrl: `file:${databasePath}`, appDataDir: tempDir, runtimeDir: path.join(tempDir, "runtime") })
+  );
+  assert.doesNotThrow(() => database.initialize());
+
+  // Existing records preserved
+  const allServices = database.listTrustedVacancyServicesPage(0, 100).items;
+  const legacyExample = allServices.find((s) => s.hostname === "legacy.example.com");
+  assert.equal(legacyExample?.status, "active");
+  assert.equal(legacyExample?.adapter, "generic");
+
+  // User-created job.mts.ru record preserved with its status
+  const userMts = allServices.find((s) => s.hostname === "job.mts.ru" && s.status === "active");
+  assert.ok(userMts, "user-created job.mts.ru record should exist");
+  assert.equal(userMts?.adapter, "mts_jobs", "adapter should be upgraded to 'mts_jobs'");
+  assert.equal(userMts?.status, "active", "user-set status should be preserved");
+
+  // Seed job.mts.ru entry only created if no user record exists (already exists, so no duplicate)
+  const mtsEntries = allServices.filter((s) => s.hostname === "job.mts.ru");
+  assert.equal(mtsEntries.length, 1, "should not create duplicate entries for job.mts.ru");
+
+  // Re-initialization does not create duplicates
+  const database2 = new VacancyDatabase(
+    createTestConfig({ databasePath, databaseUrl: `file:${databasePath}`, appDataDir: tempDir, runtimeDir: path.join(tempDir, "runtime") })
+  );
+  assert.doesNotThrow(() => database2.initialize());
+  const afterReinit = database2.listTrustedVacancyServicesPage(0, 100).items;
+  const mtsAfterReinit = afterReinit.filter((s) => s.hostname === "job.mts.ru");
+  assert.equal(mtsAfterReinit.length, 1, "re-init should not create duplicates");
+
+  // Verify the new adapter is accepted by CHECK constraint
+  const migratedSqlite = new BetterSqlite3(databasePath, { readonly: true });
+  const row = migratedSqlite.prepare("SELECT adapter FROM trusted_vacancy_services WHERE hostname = 'job.mts.ru'").get() as { adapter: string };
+  assert.equal(row.adapter, "mts_jobs");
+
+  migratedSqlite.close();
+  database2.close();
+  database.close();
+});
