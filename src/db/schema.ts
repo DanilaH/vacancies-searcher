@@ -12,6 +12,7 @@ const TRUSTED_VACANCY_SERVICE_ADAPTER_CHECK = [
   "'tbank_careers'",
   "'yandex_jobs'",
   "'ingamejob'",
+  "'designer_ru'",
   "'generic'"
 ].join(", ");
 
@@ -25,6 +26,7 @@ const TRUSTED_VACANCY_SERVICE_REQUIRED_ADAPTERS = [
   "'tbank_careers'",
   "'yandex_jobs'",
   "'ingamejob'",
+  "'designer_ru'",
   "'generic'"
 ];
 
@@ -835,6 +837,21 @@ function ensureTrustedVacancyServicesTable(db: SqliteDatabase): void {
     `UPDATE trusted_vacancy_services
      SET display_name = 'InGame Job', adapter = 'ingamejob', parser_mode = 'specialized'
      WHERE hostname = 'ingamejob.com'`
+  ).run();
+  db.prepare(
+    `INSERT OR IGNORE INTO trusted_vacancy_services (
+       hostname, display_name, adapter, status, parser_mode, example_url,
+       added_by_user_id, approved_by_user_id, created_at, updated_at
+     ) VALUES (
+       'designer.ru', 'Designer.ru', 'designer_ru', 'pending',
+       'json_ld_or_html', 'https://designer.ru/u/designhunt-ishchet-ishchet-produktovogo-dizaynera-senior/',
+       NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+     )`
+  ).run();
+  db.prepare(
+    `UPDATE trusted_vacancy_services
+     SET display_name = 'Designer.ru', adapter = 'designer_ru', parser_mode = 'json_ld_or_html'
+     WHERE hostname = 'designer.ru'`
   ).run();
 }
 

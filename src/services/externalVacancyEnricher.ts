@@ -315,7 +315,8 @@ function prefersJsonLdFirst(service: TrustedVacancyServiceRecord): boolean {
     || service.adapter === "aviasales_careers"
     || service.adapter === "cloud_careers"
     || service.adapter === "tbank_careers"
-    || service.adapter === "yandex_jobs";
+    || service.adapter === "yandex_jobs"
+    || service.adapter === "designer_ru";
 }
 
 function fromHtml(url: string, html: string, service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult | null {
@@ -428,9 +429,11 @@ export class ExternalVacancyEnricher {
       const jobPosting = jsonLdJobPosting(html);
       const jsonLdResult = jobPosting ? fromJsonLd(safeUrl, jobPosting) : null;
       const htmlResult = () => fromHtml(safeUrl, html, service);
-      const result = prefersJsonLdFirst(service)
-        ? jsonLdResult ?? htmlResult()
-        : htmlResult() ?? jsonLdResult;
+      const result = service.adapter === "designer_ru"
+        ? jsonLdResult
+        : prefersJsonLdFirst(service)
+          ? jsonLdResult ?? htmlResult()
+          : htmlResult() ?? jsonLdResult;
       if (!result) {
         throw new ExternalVacancyEnrichmentError("Page does not contain a confident vacancy description.", true);
       }

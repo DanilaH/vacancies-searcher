@@ -103,6 +103,7 @@ export type TrustedVacancyServiceAdapter =
   | "tbank_careers"
   | "yandex_jobs"
   | "ingamejob"
+  | "designer_ru"
   | "generic";
 export type TrustedVacancyServiceStatus = "pending" | "active" | "disabled";
 export type TrustedVacancyServiceParserMode = "specialized" | "json_ld_or_html";

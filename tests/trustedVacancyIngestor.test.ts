@@ -237,3 +237,114 @@ test("ingamejob: temporary network failure keeps Telegram-only vacancy", async (
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
+
+function createDesignerRuFixture(html: string, fetchOverride?: () => Promise<Response>) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-designer-ru-ingestor-"));
+  const config = createTestConfig({
+    ownerUserId: "777",
+    ownerChatId: "777",
+    companyCareersRequestDelayMs: 0,
+    databasePath: path.join(tempDir, "bot.db"),
+    databaseUrl: `file:${path.join(tempDir, "bot.db")}`,
+    appDataDir: tempDir,
+    runtimeDir: path.join(tempDir, "runtime")
+  });
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
+  database.setUserSearchProfileKeywords("777", "required_primary", ["designer"]);
+  const service = database.addTrustedVacancyService({
+    hostname: "designer.ru",
+    displayName: "Designer.ru",
+    adapter: "designer_ru",
+    exampleUrl: "https://designer.ru/u/senior-product-designer/"
+  });
+  database.markTrustedVacancyServiceCheck(service.id, null);
+  database.setTrustedVacancyServiceStatus(service.id, "active", "777");
+  const deliveries: number[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(vacancy: MatchedVacancyRecord) { deliveries.push(vacancy.id); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: fetchOverride ?? (async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } }))
+  });
+  const ingestor = new VacancyIngestor(config, new VacancyFilter(config), database, bot, analytics, enricher);
+  return { database, analytics, ingestor, deliveries };
+}
+
+test("designer_ru: valid vacancy page enriches and creates vacancy", async () => {
+  const validHtml = `<!DOCTYPE html><html lang="ru"><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": "Senior Product Designer",
+  "description": "<p>Design and improve features.</p>",
+  "hiringOrganization": { "@type": "Organization", "name": "TechCorp" },
+  "jobLocation": { "@type": "Place", "address": { "@type": "PostalAddress", "addressLocality": "Moscow" } },
+  "jobLocationType": "TELECOMMUTE",
+  "employmentType": "FULL_TIME"
+}
+</script></head><body><h1>Senior Product Designer</h1><main>Design and improve features.</main></body></html>`;
+  const fixture = createDesignerRuFixture(validHtml);
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "designjobs",
+    messageId: "designer-ru-1",
+    date: new Date().toISOString(),
+    text: "Senior Product Designer\nRemote\nhttps://designer.ru/u/senior-product-designer/",
+    url: "https://t.me/designjobs/designer-ru-1"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://designer.ru/u/senior-product-designer/");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("designer_ru: missing page prevents posting", async () => {
+  const fixture = createDesignerRuFixture("Page not found");
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "designjobs",
+    messageId: "designer-ru-404",
+    date: new Date().toISOString(),
+    text: "Senior Product Designer\nRemote\nhttps://designer.ru/t/missing-vacancy/",
+    url: "https://t.me/designjobs/designer-ru-404"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("designer_ru: temporary network failure keeps Telegram-only vacancy", async () => {
+  const fixture = createDesignerRuFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "designjobs",
+    messageId: "designer-ru-503",
+    date: new Date().toISOString(),
+    text: "Senior Product Designer\nRemote\nhttps://designer.ru/u/senior-product-designer/",
+    url: "https://t.me/designjobs/designer-ru-503"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://designer.ru/u/senior-product-designer/");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
