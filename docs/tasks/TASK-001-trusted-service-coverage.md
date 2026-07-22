@@ -111,9 +111,9 @@ Recommended order:
      - ~~`ingamejob.com`~~ (dedicated adapter added as built-in, seeded pending)
      - ~~`designer.ru`~~ (dedicated JSON-LD adapter added as built-in, PR #25)
      - ~~`job.mts.ru`~~ (Product JSON-LD adapter with archive detection, PR #27)
-     - ~~`rabota.sber.ru`~~ (research-only, no production adapter — see `docs/research/rabota-sber-ru.md`)
-     - `job.megafon.ru`
-     - `job.alfabank.ru`
+      - ~~`rabota.sber.ru`~~ (research-only, no production adapter — see `docs/research/rabota-sber-ru.md`)
+
+**Trusted-adapter cycle stopped after `rabota.sber.ru`.** Remaining candidates (`job.megafon.ru`, `job.alfabank.ru`, `youngjunior.ru`, `itcharm.com`, `career.sonderads.com`) are deferred — cycle may resume after smoke audit and real usage period.
 2. Prefer adapter-specific URL shape plus existing JSON-LD/HTML extraction over loosening the generic fallback.
 3. Decide whether any already guarded broad-domain service should become active only after real sample checks.
 4. If admin diagnostics are confusing, report "known host, unsupported URL shape" separately from unknown/pending services.

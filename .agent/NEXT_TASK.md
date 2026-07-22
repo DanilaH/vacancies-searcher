@@ -1,51 +1,33 @@
 # Next Task
 
-## Active: trusted adapter research for `job.megafon.ru`
+## Active: Telegram smoke audit — automated baseline
 
-Status: pending — start after the `rabota.sber.ru` research PR is reviewed and merged.
+Status: automated checks completed, manual checklist awaits user.
 
-Product phase: source quality and vacancy relevance.
+Product phase: source quality and vacancy relevance (пункт 2: ручной Telegram smoke).
 
-Parent task: `docs/tasks/TASK-001-trusted-service-coverage.md`.
+Parent task: `docs/qa/TELEGRAM_SMOKE_CHECKLIST.md`.
 
 ## Goal
 
-Research real public `job.megafon.ru` vacancy pages and add a safe trusted adapter only if the implementation can prove:
+Prepare and execute a Telegram smoke audit covering:
 
-- an exact public hostname;
-- a narrow vacancy URL shape;
-- a stable JSON-LD or specialized vacancy signal;
-- reliable rejection of lists, content pages, subdomains and malformed paths;
-- preservation of Telegram-only ingestion on temporary failures.
+- Onboarding flow
+- Weekly feed and vacancy cards
+- Vacancy actions (save, apply, hide, remind)
+- Settings and notifications
+- Admin/owner panel (pause, channels, trusted services, backup)
+- Diagnostics and empty-state flows
 
-If that safety case cannot be proven, deliver a research-only PR without a production adapter.
+Automated checks are run by the executor. Manual checks require a live Telegram bot and are executed by the user.
 
-## Required delivery workflow
+## Results
 
-1. Work in a feature branch created from the current `master`.
-2. Keep the PR limited to `job.megafon.ru`.
-3. Add focused URL, parser, ingestion and migration tests when code/schema changes.
-4. Run the full verification baseline.
-5. Push the branch and open a PR into `master`.
-6. Stop for review; do not self-merge.
-
-## Verification
-
-```bash
-node --import tsx --test \
-  tests/trustedVacancyServices.test.ts \
-  tests/trustedVacancyIngestor.test.ts \
-  tests/databaseMigration.test.ts
-
-npm test
-npx tsc -p tsconfig.json --pretty false
-npm run build
-```
+- Automated results: `docs/qa/TELEGRAM_SMOKE_RESULTS.md`
+- Manual checklist: `docs/qa/TELEGRAM_SMOKE_CHECKLIST.md` (section `# Ручная проверка пользователем`)
 
 ## After this task
 
-Do not select the next product task from this file. After review and merge:
-
-1. update `docs/STATUS.md`;
-2. consult the fixed order in `docs/product/ROADMAP.md`;
-3. write exactly one new immediate task here.
+1. User executes manual checklist (20–30 min).
+2. Create a follow-up PR with bug fixes or a confirmation of stability.
+3. Resume next product phase from `docs/product/ROADMAP.md`.
