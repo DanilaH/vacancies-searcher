@@ -354,7 +354,8 @@ function fromMtsJobs(url: string, html: string): ExternalVacancyEnrichmentResult
   const availability = offers && typeof offers === "object"
     ? asString((offers as Record<string, unknown>).availability)
     : null;
-  if (availability && /outofstock/i.test(availability)) return null;
+  const hasArchivedHtmlMarker = /вакансия в архиве/iu.test(normalizeReadableText(load(html).text()));
+  if ((availability && /outofstock/iu.test(availability)) || hasArchivedHtmlMarker) return null;
   const salary = offers && typeof offers === "object"
     ? asString((offers as Record<string, unknown>).price)
     : null;
