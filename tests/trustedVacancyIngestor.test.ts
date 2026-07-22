@@ -443,6 +443,24 @@ test("mts_jobs: archived page (200 with OutOfStock) prevents posting", async () 
   fixture.database.close();
 });
 
+test("mts_jobs: InStock JSON-LD with archived HTML marker prevents posting", async () => {
+  const archivedHtml = fs.readFileSync(path.join(__dirname, "fixtures/mts-jobs-archived.html"), "utf-8")
+    .replace("https://schema.org/OutOfStock", "https://schema.org/InStock");
+  const fixture = createMtsJobsFixture(archivedHtml);
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-conflicting-archive-signals",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
+    url: "https://t.me/itjobs/mts-jobs-conflicting-archive-signals"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
 test("mts_jobs: temporary network failure keeps Telegram-only vacancy", async () => {
   const fixture = createMtsJobsFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
   const matched = await fixture.ingestor.handle({
