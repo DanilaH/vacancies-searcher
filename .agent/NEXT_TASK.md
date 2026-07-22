@@ -1,6 +1,8 @@
 # Next Task
 
-Current branch: `feature/fuzzy-vacancy-dedup` (PR #19)
+No active task file.
+
+PR #19 (`feature/fuzzy-vacancy-dedup`) passed final review and is ready to merge.
 
 ## What's Done
 
@@ -19,7 +21,7 @@ All 5 review blocks are resolved:
 - `listVacancyDuplicatePosts` UNIONs fuzzy sources → root card shows all group members
 
 ### 3. Regression tests (Issue 3)
-- 9 integration tests covering: per-user dedup, chain linking, fingerprint coexistence, raw record preservation, duplicate match prevention, status/feedback/reminder integrity, source listing
+- 11 regression tests covering: per-user dedup, transitive root/leaf display, fingerprint and canonical coexistence, raw record preservation, duplicate prevention, and status/feedback/reminder integrity
 - All use real production components (DB, VacancyIngestor, BotController)
 
 ### 4. Candidate pre-filtering (Issue 4)
@@ -29,24 +31,23 @@ All 5 review blocks are resolved:
 - Exclude words list mirrors `vacancyFuzzyMatcher`'s `EXCLUDE_TITLE_WORDS`
 
 ### 5. Verification
-- **575/575 tests pass** (18 unit + 2 integration + 9 regression for fuzzy, rest unchanged)
+- **592/592 tests pass** (18 unit + 2 ingestion integration + 11 regression tests for fuzzy dedup)
 - `npx tsc` — clean
 - `npm run build` — clean
 
 ## Next Steps
 
-1. Check PR merge status and update description
-2. Request final review from PR reviewers
-3. Do not merge
+1. Merge PR #19 after the green CI on the documentation-only head.
+2. Choose the next bounded product task from `docs/product/ROADMAP.md`.
 
 ## Changed Files
 
 - `src/db/database.ts` — `getFuzzyGroupVacancyIds`, `getFuzzyGroupRootId`, `hasUserMatchedAnyVacancy`; `listFuzzyMatchCandidates` accepts `titleTokens`; `recordVacancyFuzzyDuplicate` unchanged
 - `src/db/schema.ts` — `idx_vacancies_message_date` index
 - `src/services/vacancyIngestor.ts` — `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null`, links to root; `matchVacancyForEligibleUsers` accepts `fuzzyGroupVacancyIds`; `handle` no longer skips matching entirely
-- `tests/vacancyFuzzyRegression.test.ts` — 9 integration tests
+- `tests/vacancyFuzzyRegression.test.ts` — 11 regression tests
 - `tests/vacancyFuzzyIngestion.test.ts` — 2 integration tests (unchanged)
-- `tests/vacancyFuzzyMatcher.test.ts` — 14 unit tests (unchanged)
+- `tests/vacancyFuzzyMatcher.test.ts` — 18 unit tests
 
 ## Verification
 
