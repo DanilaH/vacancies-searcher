@@ -171,12 +171,18 @@ export function createWeeklyZeroStateKeyboard(
 export function createNotificationsKeyboard(
   notifyOnEmptyCycle: boolean,
   dailyDigestEnabled = false,
-  instantVacancyNotificationsEnabled = true
+  instantVacancyNotificationsEnabled = true,
+  notificationQuietHoursEnabled = false
 ): InlineKeyboard {
   return new InlineKeyboard()
     .text(
       instantVacancyNotificationsEnabled ? "🔔 Новые вакансии сразу: включены" : "🔕 Новые вакансии сразу: выключены",
       "notifications:toggle_instant_vacancy"
+    )
+    .row()
+    .text(
+      notificationQuietHoursEnabled ? "🌙 Ночная пауза 23:00–08:00: включена" : "🌙 Ночная пауза 23:00–08:00: выключена",
+      "notifications:toggle_quiet_hours"
     )
     .row()
     .text(

@@ -36,6 +36,7 @@ import {
   MonitoredChannel,
   MonitoredChannelPage,
   OnboardingStep,
+  PendingNotificationRecord,
   RejectedAuditVacancyRecord,
   RejectedMatchAuditRecord,
   RuntimeSettingKey,
@@ -4287,6 +4288,7 @@ export class VacancyDatabase {
             daily_digest_enabled,
             daily_digest_time_minutes,
             instant_vacancy_notifications_enabled,
+            notification_quiet_hours_enabled,
             weekly_page_size,
             vacancy_language_mode,
             onboarding_completed,
@@ -4353,6 +4355,110 @@ export class VacancyDatabase {
     this.getDb()
       .prepare("UPDATE user_settings SET instant_vacancy_notifications_enabled = ?, updated_at = ? WHERE user_id = ?")
       .run(enabled ? 1 : 0, nowIso(), userId);
+  }
+
+  setNotificationQuietHoursEnabled(userId: string, enabled: boolean): void {
+    this.ensureUserSettings(userId);
+    this.getDb()
+      .prepare("UPDATE user_settings SET notification_quiet_hours_enabled = ?, updated_at = ? WHERE user_id = ?")
+      .run(enabled ? 1 : 0, nowIso(), userId);
+  }
+
+  enqueuePendingNotification(userId: string, vacancyId: number, scheduledAt: string): void {
+    const now = nowIso();
+    this.getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO pending_notification_queue (user_id, vacancy_id, enqueued_at, scheduled_at, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(userId, vacancyId, now, scheduledAt, now);
+  }
+
+  listDuePendingNotifications(nowIsoStr: string): PendingNotificationRecord[] {
+    const rows = this.getDb()
+      .prepare(
+        `SELECT id, user_id, vacancy_id, enqueued_at, scheduled_at, retry_count, last_error, delivered_at
+         FROM pending_notification_queue
+         WHERE delivered_at IS NULL AND scheduled_at <= ?
+         ORDER BY scheduled_at ASC`
+      )
+      .all(nowIsoStr) as Array<{
+        id: number;
+        user_id: string;
+        vacancy_id: number;
+        enqueued_at: string;
+        scheduled_at: string;
+        retry_count: number;
+        last_error: string | null;
+        delivered_at: string | null;
+      }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      vacancyId: row.vacancy_id,
+      enqueuedAt: row.enqueued_at,
+      scheduledAt: row.scheduled_at,
+      retryCount: row.retry_count,
+      lastError: row.last_error,
+      deliveredAt: row.delivered_at
+    }));
+  }
+
+  markPendingNotificationDelivered(id: number): void {
+    this.getDb()
+      .prepare("UPDATE pending_notification_queue SET delivered_at = ? WHERE id = ?")
+      .run(nowIso(), id);
+  }
+
+  markPendingNotificationFailed(id: number, error: string, nextScheduledAt?: string): void {
+    if (nextScheduledAt) {
+      this.getDb()
+        .prepare("UPDATE pending_notification_queue SET retry_count = retry_count + 1, last_error = ?, scheduled_at = ? WHERE id = ?")
+        .run(error, nextScheduledAt, id);
+    } else {
+      this.getDb()
+        .prepare("UPDATE pending_notification_queue SET retry_count = retry_count + 1, last_error = ? WHERE id = ?")
+        .run(error, id);
+    }
+  }
+
+  hasPendingNotification(userId: string, vacancyId: number): boolean {
+    const row = this.getDb()
+      .prepare(
+        `SELECT 1 FROM pending_notification_queue
+         WHERE user_id = ? AND vacancy_id = ? AND delivered_at IS NULL
+         LIMIT 1`
+      )
+      .get(userId, vacancyId) as { "1": number } | undefined;
+    return row !== undefined;
+  }
+
+  cancelPendingNotificationsForVacancy(userId: string, vacancyId: number): void {
+    this.getDb()
+      .prepare(
+        `UPDATE pending_notification_queue
+         SET delivered_at = ?,
+             last_error = 'cancelled'
+         WHERE user_id = ? AND vacancy_id = ? AND delivered_at IS NULL`
+      )
+      .run(nowIso(), userId, vacancyId);
+  }
+
+  listInstantWithQuietHoursEnabledUsers(): string[] {
+    const rows = this.getDb()
+      .prepare(
+        `SELECT u.user_id
+         FROM bot_users u
+         INNER JOIN user_settings s ON s.user_id = u.user_id
+         WHERE u.is_active = 1
+           AND s.instant_vacancy_notifications_enabled = 1
+           AND s.notification_quiet_hours_enabled = 1
+         ORDER BY u.user_id ASC`
+      )
+      .all() as Array<{ user_id: string }>;
+
+    return rows.map((row) => row.user_id);
   }
 
   listDailyDigestEnabledUsers(): Array<{ userId: string; dailyDigestTimeMinutes: number | null }> {
@@ -5242,6 +5348,7 @@ export class VacancyDatabase {
             daily_digest_enabled,
             daily_digest_time_minutes,
             instant_vacancy_notifications_enabled,
+            notification_quiet_hours_enabled,
             weekly_page_size,
             vacancy_language_mode,
             onboarding_completed,
@@ -5250,7 +5357,7 @@ export class VacancyDatabase {
             pending_input_payload,
             pending_keyword_kind,
             updated_at
-          ) VALUES (?, 0, 'keywords', 0, 0, 0, NULL, 1, NULL, 'ru_en', 0, NULL, NULL, NULL, NULL, ?)
+          ) VALUES (?, 0, 'keywords', 0, 0, 0, NULL, 1, 0, NULL, 'ru_en', 0, NULL, NULL, NULL, NULL, ?)
         `
       )
       .run(userId, timestamp);
@@ -5417,7 +5524,7 @@ export class VacancyDatabase {
     return row ? mapVacancy(row) : null;
   }
 
-  private getUserVacancyMatch(userId: string, vacancyId: number): MatchedVacancyRecord | null {
+  getUserVacancyMatch(userId: string, vacancyId: number): MatchedVacancyRecord | null {
     const row = this.getDb()
       .prepare(
         `

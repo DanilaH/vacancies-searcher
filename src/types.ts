@@ -287,7 +287,12 @@ export type AnalyticsEventName =
   | "poll_cycle_completed"
   | "poll_cycle_failed"
   | "vacancy_fuzzy_duplicate_found"
-  | "instant_vacancy_notifications_toggled";
+  | "instant_vacancy_notifications_toggled"
+  | "notification_quiet_hours_toggled"
+  | "pending_notification_enqueued"
+  | "pending_notification_delivered"
+  | "pending_notification_failed"
+  | "pending_notification_cancelled";
 
 export type AnalyticsPropertyValue =
   | string
@@ -424,6 +429,7 @@ export interface UserSettings {
   dailyDigestEnabled: boolean;
   dailyDigestTimeMinutes: number | null;
   instantVacancyNotificationsEnabled: boolean;
+  notificationQuietHoursEnabled: boolean;
   weeklyPageSize: number | null;
   vacancyLanguageMode: VacancyLanguageMode;
   onboardingCompleted: boolean;
@@ -720,6 +726,17 @@ export interface VacancyReminderRecord extends VacancyRecord {
   lastError: string | null;
   reminderCreatedAt: string;
   reminderUpdatedAt: string;
+}
+
+export interface PendingNotificationRecord {
+  id: number;
+  userId: string;
+  vacancyId: number;
+  enqueuedAt: string;
+  scheduledAt: string;
+  retryCount: number;
+  lastError: string | null;
+  deliveredAt: string | null;
 }
 
 export interface VacancyReminderPage {

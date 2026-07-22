@@ -903,7 +903,8 @@ export interface UserQuietDiagnosticsPayload {
 export function formatNotificationPreferences(
   notifyOnEmptyCycle: boolean,
   dailyDigestEnabled = false,
-  instantVacancyNotificationsEnabled = true
+  instantVacancyNotificationsEnabled = true,
+  notificationQuietHoursEnabled = false
 ): string {
   return [
     "🔔 Настройки уведомлений",
@@ -911,6 +912,7 @@ export function formatNotificationPreferences(
     "Здесь можно настроить получение уведомлений о новых вакансиях.",
     "",
     `🔔 Новые вакансии сразу: ${instantVacancyNotificationsEnabled ? "включены" : "выключены"}`,
+    `🌙 Ночная пауза 23:00–08:00: ${notificationQuietHoursEnabled ? "включена" : "выключена"}`,
     `🌅 Утренний дайджест: ${dailyDigestEnabled ? "включён" : "выключен"}`,
     `🔔 Если новых вакансий нет: ${notifyOnEmptyCycle ? "сообщать" : "не сообщать"}`,
     "🕘 Время дайджеста: 09:00"

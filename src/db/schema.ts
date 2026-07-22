@@ -161,6 +161,26 @@ export function createBaseSchema(db: SqliteDatabase): void {
       FOREIGN KEY (duplicate_vacancy_id) REFERENCES vacancies(id)
     );
 
+    CREATE TABLE IF NOT EXISTS pending_notification_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      vacancy_id INTEGER NOT NULL,
+      enqueued_at TEXT NOT NULL,
+      scheduled_at TEXT NOT NULL,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      delivered_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES bot_users(user_id) ON DELETE CASCADE,
+      FOREIGN KEY (vacancy_id) REFERENCES vacancies(id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_notification_user_vacancy
+      ON pending_notification_queue(user_id, vacancy_id);
+
+    CREATE INDEX IF NOT EXISTS idx_pending_notification_due
+      ON pending_notification_queue(delivered_at, scheduled_at);
+
     CREATE TABLE IF NOT EXISTS company_career_sources (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       company_name TEXT NOT NULL,
@@ -217,6 +237,7 @@ export function createBaseSchema(db: SqliteDatabase): void {
       daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
       daily_digest_time_minutes INTEGER,
       instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1,
+      notification_quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
       weekly_page_size INTEGER,
       vacancy_language_mode TEXT NOT NULL DEFAULT 'ru_en',
       onboarding_completed INTEGER NOT NULL DEFAULT 0,
@@ -587,6 +608,10 @@ function ensureUserSettingsColumns(db: SqliteDatabase): void {
 
   if (!columns.has("instant_vacancy_notifications_enabled")) {
     db.prepare("ALTER TABLE user_settings ADD COLUMN instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1").run();
+  }
+
+  if (!columns.has("notification_quiet_hours_enabled")) {
+    db.prepare("ALTER TABLE user_settings ADD COLUMN notification_quiet_hours_enabled INTEGER NOT NULL DEFAULT 0").run();
   }
 
   if (!columns.has("weekly_page_size")) {
@@ -1453,6 +1478,9 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
   const weeklyPageSizeSelect = columns.has("weekly_page_size")
     ? "CASE WHEN weekly_page_size BETWEEN 1 AND 5 THEN weekly_page_size ELSE NULL END"
     : "NULL";
+  const notificationQuietHoursEnabledSelect = columns.has("notification_quiet_hours_enabled")
+    ? "COALESCE(notification_quiet_hours_enabled, 0)"
+    : "0";
 
   db.transaction(() => {
     db.exec(`
@@ -1465,6 +1493,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
         daily_digest_time_minutes INTEGER,
         instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1,
+        notification_quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
         weekly_page_size INTEGER,
         vacancy_language_mode TEXT NOT NULL DEFAULT 'ru_en',
         onboarding_completed INTEGER NOT NULL DEFAULT 0,
@@ -1528,6 +1557,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         daily_digest_enabled,
         daily_digest_time_minutes,
         instant_vacancy_notifications_enabled,
+        notification_quiet_hours_enabled,
         weekly_page_size,
         vacancy_language_mode,
         onboarding_completed,
@@ -1549,6 +1579,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         ${dailyDigestEnabledSelect},
         ${dailyDigestTimeMinutesSelect},
         ${instantVacancyNotificationsEnabledSelect},
+        ${notificationQuietHoursEnabledSelect},
         ${weeklyPageSizeSelect},
         ${vacancyLanguageModeSelect},
         ${onboardingCompletedSelect},
