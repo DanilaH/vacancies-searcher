@@ -4377,9 +4377,9 @@ export class VacancyDatabase {
   listDuePendingNotifications(nowIsoStr: string): PendingNotificationRecord[] {
     const rows = this.getDb()
       .prepare(
-        `SELECT id, user_id, vacancy_id, enqueued_at, scheduled_at, retry_count, last_error, delivered_at
+        `SELECT id, user_id, vacancy_id, enqueued_at, scheduled_at, retry_count, last_error, delivered_at, status
          FROM pending_notification_queue
-         WHERE delivered_at IS NULL AND scheduled_at <= ?
+         WHERE status = 'pending' AND delivered_at IS NULL AND scheduled_at <= ?
          ORDER BY scheduled_at ASC`
       )
       .all(nowIsoStr) as Array<{
@@ -4391,6 +4391,7 @@ export class VacancyDatabase {
         retry_count: number;
         last_error: string | null;
         delivered_at: string | null;
+        status: string;
       }>;
 
     return rows.map((row) => ({
@@ -4401,14 +4402,21 @@ export class VacancyDatabase {
       scheduledAt: row.scheduled_at,
       retryCount: row.retry_count,
       lastError: row.last_error,
-      deliveredAt: row.delivered_at
+      deliveredAt: row.delivered_at,
+      status: row.status as PendingNotificationRecord['status']
     }));
   }
 
   markPendingNotificationDelivered(id: number): void {
     this.getDb()
-      .prepare("UPDATE pending_notification_queue SET delivered_at = ? WHERE id = ?")
+      .prepare("UPDATE pending_notification_queue SET delivered_at = ?, status = 'delivered' WHERE id = ?")
       .run(nowIso(), id);
+  }
+
+  markPendingNotificationDeadLetter(id: number, error: string): void {
+    this.getDb()
+      .prepare("UPDATE pending_notification_queue SET delivered_at = ?, status = 'failed', last_error = ? WHERE id = ?")
+      .run(nowIso(), error, id);
   }
 
   markPendingNotificationFailed(id: number, error: string, nextScheduledAt?: string): void {
@@ -4427,7 +4435,7 @@ export class VacancyDatabase {
     const row = this.getDb()
       .prepare(
         `SELECT 1 FROM pending_notification_queue
-         WHERE user_id = ? AND vacancy_id = ? AND delivered_at IS NULL
+         WHERE user_id = ? AND vacancy_id = ? AND status = 'pending'
          LIMIT 1`
       )
       .get(userId, vacancyId) as { "1": number } | undefined;
@@ -4439,8 +4447,9 @@ export class VacancyDatabase {
       .prepare(
         `UPDATE pending_notification_queue
          SET delivered_at = ?,
+             status = 'cancelled',
              last_error = 'cancelled'
-         WHERE user_id = ? AND vacancy_id = ? AND delivered_at IS NULL`
+         WHERE user_id = ? AND vacancy_id = ? AND status = 'pending'`
       )
       .run(nowIso(), userId, vacancyId);
   }

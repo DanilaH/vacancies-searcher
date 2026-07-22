@@ -7,6 +7,7 @@ type PendingNotificationDelivery = (userId: string, vacancyId: number) => Promis
 const DEFAULT_INTERVAL_MS = 60_000;
 const RETRY_BASE_MS = 5 * 60_000;
 const RETRY_MAX_MS = 6 * 60 * 60_000;
+const MAX_RETRY_COUNT = 10;
 
 export class PendingNotificationScheduler {
   private timer?: NodeJS.Timeout;
@@ -101,6 +102,17 @@ export class PendingNotificationScheduler {
   }
 
   private markFailed(item: PendingNotificationRecord, now: Date, error: string): void {
+    if (item.retryCount >= MAX_RETRY_COUNT) {
+      this.database.markPendingNotificationDeadLetter(
+        item.id,
+        `max_retries_exceeded: ${error}`
+      );
+      logger.warn(
+        { userId: item.userId, vacancyId: item.vacancyId, retryCount: item.retryCount },
+        "Pending notification dead-lettered after max retries."
+      );
+      return;
+    }
     const retryDelay = Math.min(RETRY_BASE_MS * 2 ** item.retryCount, RETRY_MAX_MS);
     const nextScheduledAt = new Date(now.getTime() + retryDelay).toISOString();
     this.database.markPendingNotificationFailed(item.id, error, nextScheduledAt);

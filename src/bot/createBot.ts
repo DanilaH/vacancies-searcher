@@ -40,6 +40,7 @@ import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
 import { handleVacancyHideCallback, handleVacancyRelevanceCallback } from "./relevanceFeedbackHandler";
 import { handleInstantVacancyToggleCallback } from "./notificationToggleHandler";
+import { handleNotificationQuietHoursToggleCallback } from "./notificationQuietHoursHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -2745,25 +2746,7 @@ export function createBotController(
         await handleInstantVacancyToggleCallback(ctx, database, analytics, showNotificationsPanel);
     });
     bot.callbackQuery("notifications:toggle_quiet_hours", async (ctx) => {
-        const currentUserId = getCurrentUserId(ctx);
-        if (!currentUserId) {
-            await ctx.answerCallbackQuery({ text: "⚠️ Не удалось определить пользователя." });
-            return;
-        }
-        const currentSettings = database.getUserSettings(currentUserId);
-        const newValue = !currentSettings.notificationQuietHoursEnabled;
-        database.setNotificationQuietHoursEnabled(currentUserId, newValue);
-        await ctx.answerCallbackQuery({
-            text: newValue
-                ? "🌙 Ночная пауза 23:00–08:00 включена."
-                : "🌙 Ночная пауза 23:00–08:00 выключена."
-        });
-        await analytics.capture({
-            eventName: "notification_quiet_hours_toggled",
-            userId: currentUserId,
-            properties: { new_value: newValue, source: "user_settings" }
-        });
-        await showNotificationsPanel(ctx, "edit");
+        await handleNotificationQuietHoursToggleCallback(ctx, database, analytics, showNotificationsPanel);
     });
     bot.callbackQuery("notifications:toggle_empty_cycle_notice", async (ctx) => {
         const currentUserId = getCurrentUserId(ctx);

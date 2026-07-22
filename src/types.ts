@@ -737,6 +737,7 @@ export interface PendingNotificationRecord {
   retryCount: number;
   lastError: string | null;
   deliveredAt: string | null;
+  status: 'pending' | 'delivered' | 'failed' | 'cancelled';
 }
 
 export interface VacancyReminderPage {

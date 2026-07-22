@@ -127,7 +127,7 @@ Known from recent work:
 - Full suite passed with 323 tests after onboarding/start copy refresh (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after onboarding/start copy refresh.
 - Focused weekly catch-up/window check passed: `node --import tsx --test tests/telegramWebPreviewSource.test.ts tests/botKeyboards.test.ts tests/vacancyCardOrigin.test.ts` (41 tests).
-- Full suite passed with 666 tests after notification quiet hours feature (`npm test`).
+- Full suite passed with 684 tests after quiet hours review fixes: ingestor `now` injection, retry limit + dead-letter, callback handler extraction, DST tests, integration tests (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after weekly catch-up and window support.
 - Full suite passed with 295 tests after compact weekly screen and user weekly page-size settings work.
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after the same work.
@@ -145,7 +145,7 @@ Known from recent work:
 - DB methods: `listFuzzyMatchCandidates(vacancyId, days, limit, titleTokens?)` — indexed query with optional LIKE pre-filter by title tokens; `recordVacancyFuzzyDuplicate` — ordered INSERT OR IGNORE; `getFuzzyGroupVacancyIds`, `getFuzzyGroupRootId`, `hasUserMatchedAnyVacancy`.
 - `vacancy_fuzzy_duplicates` table stores `vacancy_id`, `duplicate_vacancy_id`, `score`, `reasons_json`, ordered so `vacancy_id < duplicate_vacancy_id`.
 - `idx_vacancies_message_date` index added for efficient time-window queries.
-- Notification quiet hours feature: user-toggleable `notification_quiet_hours_enabled` setting (default false). When enabled with instant notifications on, vacancies matched during 23:00–08:00 (config timezone) are enqueued to `pending_notification_queue` and delivered at 08:00 local time via `PendingNotificationScheduler`. Delivery respects hidden/applied cancellation, retries with backoff, and survives process restart via SQLite persistence. 24 tests cover migration, DB operations, scheduler, timezone utils, keyboard, formatter, dedup, isolation, and cancellation.
+- Notification quiet hours feature: user-toggleable `notification_quiet_hours_enabled` setting (default false). When enabled with instant notifications on, vacancies matched during 23:00–08:00 (config timezone) are enqueued to `pending_notification_queue` and delivered at 08:00 local time via `PendingNotificationScheduler`. Delivery respects hidden/applied cancellation, retries with backoff (max 10, exponential 5min–6h, dead-letter on exhaustion), and survives process restart via SQLite persistence. `VacancyIngestor` accepts `now: () => Date` for controlled time testing. 57 tests cover migration, DB operations, scheduler, timezone utils, DST, keyboard, formatter, dedup, isolation, retry limits, ingestor integration, and callback handler.
 
 Before starting new code work, rerun:
 

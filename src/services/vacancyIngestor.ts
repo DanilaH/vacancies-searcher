@@ -36,6 +36,7 @@ type FuzzyDuplicateGroup = {
 
 export class VacancyIngestor {
   private readonly externalEnricher: ExternalVacancyEnricher;
+  private readonly now: () => Date;
 
   constructor(
     private readonly config: AppConfig,
@@ -43,9 +44,11 @@ export class VacancyIngestor {
     private readonly database: VacancyDatabase,
     private readonly bot: BotController,
     private readonly analytics: AnalyticsService,
-    externalEnricher?: ExternalVacancyEnricher
+    externalEnricher?: ExternalVacancyEnricher,
+    now?: () => Date
   ) {
     this.externalEnricher = externalEnricher ?? new ExternalVacancyEnricher(config, database);
+    this.now = now ?? (() => new Date());
   }
 
   async handle(item: RawVacancyItem): Promise<string[]> {
@@ -298,8 +301,8 @@ export class VacancyIngestor {
         continue;
       }
 
-      if (userSettings.notificationQuietHoursEnabled && isInQuietHours(new Date(), this.config.timeZone)) {
-        const scheduledAt = computeNextQuietHoursEnd(new Date(), this.config.timeZone);
+      if (userSettings.notificationQuietHoursEnabled && isInQuietHours(this.now(), this.config.timeZone)) {
+        const scheduledAt = computeNextQuietHoursEnd(this.now(), this.config.timeZone);
         this.database.enqueuePendingNotification(user.userId, matchedVacancy.id, scheduledAt);
         logger.info(
           { userId: user.userId, vacancyId: matchedVacancy.id, scheduledAt },
