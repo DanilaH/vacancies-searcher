@@ -113,7 +113,7 @@ test("invalid active trusted URL shape stays raw and is not posted as a vacancy"
   fixture.database.close();
 });
 
-function createIngameJobFixture(html: string) {
+function createIngameJobFixture(html: string, fetchOverride?: () => Promise<Response>) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-ingamejob-ingestor-"));
   const config = createTestConfig({
     ownerUserId: "777",
@@ -151,7 +151,7 @@ function createIngameJobFixture(html: string) {
   const analytics = createAnalyticsService(config, database);
   const enricher = new ExternalVacancyEnricher(config, database, {
     assertSafeUrl: async (url) => url,
-    fetchImpl: async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } })
+    fetchImpl: fetchOverride ?? (async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } }))
   });
   const ingestor = new VacancyIngestor(config, new VacancyFilter(config), database, bot, analytics, enricher);
   return { database, analytics, ingestor, deliveries };
@@ -216,5 +216,24 @@ test("ingamejob: missing page prevents posting", async () => {
   assert.deepEqual(matched, []);
   assert.deepEqual(fixture.deliveries, []);
   assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("ingamejob: temporary network failure keeps Telegram-only vacancy", async () => {
+  const fixture = createIngameJobFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "gamedev",
+    messageId: "ingamejob-503",
+    date: new Date().toISOString(),
+    text: "Senior Game Character Artist\nRemote\nhttps://ingamejob.com/en/job/senior-game-character-artist",
+    url: "https://t.me/gamedev/ingamejob-503"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://ingamejob.com/en/job/senior-game-character-artist");
+  await fixture.analytics.shutdown();
   fixture.database.close();
 });

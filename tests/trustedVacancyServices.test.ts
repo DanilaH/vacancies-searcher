@@ -315,15 +315,25 @@ test("Teletype adapter parses confident vacancy pages and rejects missing or non
 });
 
 test("ingamejob: correct vacancy URL is accepted, HTTP and other hostnames rejected", () => {
+  // Each confirmed locale accepted
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/job/senior-game-character-artist"), true);
-  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/ru/job/backend-software-engineer"), true);
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/pl/job/level-artist-31"), true);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/uk/job/1"), true);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/ru/job/backend-software-engineer"), true);
   // HTTP rejected via normalizeTrustedVacancyUrl
   assert.throws(() => normalizeTrustedVacancyUrl("http://ingamejob.com/en/job/some-role"), /HTTPS/u);
   // Wrong hostname
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://other-host.com/en/job/role"), false);
   // Subdomain rejected
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://us.ingamejob.com/en/job/role"), false);
+  // Uppercase and malformed locales rejected
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/EN/job/some-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/En/job/some-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/e/job/some-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/eng/job/some-role"), false);
+  // Unconfirmed locales rejected
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/xx/job/some-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/zz/job/some-role"), false);
   // Home page
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/"), false);
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en"), false);
@@ -341,7 +351,6 @@ test("ingamejob: correct vacancy URL is accepted, HTTP and other hostnames rejec
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/register"), false);
   // Archived / away variant (not accepted)
   assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/away/job/archived-role"), false);
-  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/uk/job/1"), true);
 });
 
 test("ingamejob: detected as known host via detectTrustedVacancyService", () => {
