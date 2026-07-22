@@ -91,8 +91,8 @@ Pending because generic parser did not confidently parse the sample:
 
 Known from recent work:
 
-- Full suite passed with 557 tests (`npm test`), `tsc` clean, `build` clean.
-- PR #18 branch `fix/relevance-feedback-integrity` is pushed and open.
+- Full suite passed with 592 tests (`npm test`), `tsc` clean, `build` clean after fuzzy vacancy dedup.
+- PR #18 (`fix/relevance-feedback-integrity`) is merged.
 - Focused relevance feedback check: `npx tsx --test tests/vacancyRelevanceFeedback.test.ts` (31 tests).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after applied workflow MVP.
 - Focused applied workflow checks passed: `node --import tsx --test tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts tests/botUsers.test.ts tests/inputFlowsRateLimit.test.ts` and `node --import tsx --test tests/userVacancyStatus.test.ts tests/botKeyboards.test.ts tests/applicationFollowUpScheduler.test.ts`.
@@ -138,7 +138,7 @@ Known from recent work:
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
 - Broad-domain adapters/path guards exist for safe shapes on `www.aviasales.ru`, `cloud.ru`, `www.tbank.ru`, and `yandex.ru`, but they are not seeded as active built-ins.
 
-- Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). Company-only matches with titleSim < 0.70 are rejected. 18 unit tests + 11 integration tests pass.
+- Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). Company-only matches with titleSim < 0.70 are rejected. 18 unit tests, 2 ingestion integration tests, and 11 regression tests pass.
 - Ingestor (`vacancyIngestor.ts`): `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null` with `groupVacancyIds`. On fuzzy hit, the new vacancy is linked to the root of the group. Matching runs normally but skips users who already matched any vacancy in the group. This prevents both matching loss (users who didn't match the first variant can still match the second) and duplicate notifications.
 - Root linking: new fuzzy duplicates are always linked to the root (min ID) of the candidate's fuzzy group via `getFuzzyGroupRootId`. Transitive group queries via `getFuzzyGroupVacancyIds` (BFS closure). `listVacancyDuplicatePosts` UNIONs fuzzy sources → root card shows all group members.
 - DB methods: `listFuzzyMatchCandidates(vacancyId, days, limit, titleTokens?)` — indexed query with optional LIKE pre-filter by title tokens; `recordVacancyFuzzyDuplicate` — ordered INSERT OR IGNORE; `getFuzzyGroupVacancyIds`, `getFuzzyGroupRootId`, `hasUserMatchedAnyVacancy`.
@@ -160,16 +160,15 @@ npx tsc -p tsconfig.json --pretty false
 - All 5 review blocks from the latest PR review are resolved:
   1. Per-user dedup (matching not skipped entirely)
   2. Root linking (fuzzy chain doesn't fragment groups)
-  3. 9 regression tests covering all edge cases
+  3. 11 regression tests covering per-user dedup, transitive display, canonical/fingerprint coexistence, and state integrity
   4. Candidate pre-filtering by title tokens + message_date index
-  5. Verification: 575/575 tests pass, typecheck + build clean
+  5. Verification: 592/592 tests pass, typecheck + build clean
 - PR #17 (`feat/audit-quality-metrics` → `master`) merged.
-- PR #18 (`fix/relevance-feedback-integrity` → `master`) open and unmerged.
-- PR is NOT ready to merge — awaiting final review.
+- PR #18 (`fix/relevance-feedback-integrity` → `master`) merged.
+- PR #19 passed final review and CI and is ready to merge.
 
 ## Known Problems
 
-- Git metadata is unavailable, so ordinary diff/status workflows are blocked.
 - Some valid vacancy sites remain `pending` because generic HTML parser is too conservative.
 - Vacancy-card extraction still has low coverage for explicit geography/Russia access and engagement because many posts provide these as free text, hashtags, or not at all. Avoid broad city guessing unless backed by tests.
 - Some bad cards are not extractor problems but ingestion/classification problems: resume/self-promo posts, non-vacancy news/surveys, and multi-vacancy aggregates can still enter the vacancy table.
