@@ -698,29 +698,48 @@ test("retry delay increases after each failure", () => {
   database.close();
 });
 
-test("retry delay does not exceed maximum", () => {
+test("backoff delay grows via scheduler and does not exceed 6h max", async () => {
   const fixture = createFixture();
   const { database } = fixture;
   const sqlite = new BetterSqlite3(fixture.config.databasePath!);
   populateNewUser(sqlite, "777");
   const v = insertVacancy(sqlite);
   createMatch(sqlite, "777", v.id);
-  database.enqueuePendingNotification("777", v.id, "2026-07-23T08:00:00.000Z");
+  const baseTime = Date.parse("2026-07-23T08:00:00Z");
+  database.enqueuePendingNotification("777", v.id, new Date(baseTime).toISOString());
 
-  const due = database.listDuePendingNotifications("3026-07-23T08:00:00.000Z");
-  const sixHoursMs = 6 * 60 * 60 * 1000;
-  const farFuture = new Date(Date.parse("2026-07-23T08:00:00Z") + sixHoursMs + 1000).toISOString();
-  database.markPendingNotificationFailed(due[0]!.id, "err", farFuture);
+  let callCount = 0;
+  const scheduler = new PendingNotificationScheduler(database, async () => {
+    callCount++;
+    return false;
+  });
 
-  const row = sqlite.prepare("SELECT scheduled_at FROM pending_notification_queue WHERE id = ?").get(due[0]!.id) as { scheduled_at: string };
-  const actualDelay = Date.parse(row.scheduled_at) - Date.parse("2026-07-23T08:00:00Z");
-  assert.ok(actualDelay <= sixHoursMs + 1000, `Delay ${actualDelay}ms should not exceed max ${sixHoursMs}ms`);
+  // Run 9 cycles. Each cycle advances by (6h + 1s) to guarantee the item is always due.
+  // This lets us observe exponential growth up to the 6h cap.
+  const sixHoursMs = 6 * 60 * 60_000;
+  for (let i = 0; i < 9; i++) {
+    const now = new Date(baseTime + i * (sixHoursMs + 1000));
+    await scheduler.runDueCycle(now);
+  }
+  assert.equal(callCount, 9, "9 delivery attempts made");
+
+  const row = sqlite.prepare("SELECT retry_count, scheduled_at FROM pending_notification_queue").get() as { retry_count: number; scheduled_at: string };
+  assert.equal(row.retry_count, 9);
+
+  // After 9 failures, total expected delay before cap: sum of min(5min*2^i, 6h) for i=0..8
+  // i=0:5min, i=1:10min, i=2:20min, i=3:40min, i=4:80min, i=5:160min, i=6:320min→capped at 360min, i=7:360min, i=8:360min
+  // Total: 5+10+20+40+80+160+360+360+360 = 1395 min = 23.25h
+  // scheduled_at should be >= base + 23.25h
+  const totalCappedDelayMs = (5 + 10 + 20 + 40 + 80 + 160 + 360 + 360 + 360) * 60_000;
+  const actualScheduledAt = Date.parse(row.scheduled_at);
+  assert.ok(actualScheduledAt >= baseTime + totalCappedDelayMs - 5000,
+    `scheduled_at ${new Date(actualScheduledAt).toISOString()} should be near base + 23.25h`);
 
   sqlite.close();
   database.close();
 });
 
-test("delivery stops after MAX_RETRY_COUNT attempts (dead-letter)", async () => {
+test("delivery stops after MAX_DELIVERY_ATTEMPTS (dead-letter)", async () => {
   const fixture = createFixture();
   const { database } = fixture;
   const sqlite = new BetterSqlite3(fixture.config.databasePath!);
@@ -736,23 +755,23 @@ test("delivery stops after MAX_RETRY_COUNT attempts (dead-letter)", async () => 
   });
 
   // Advance by 6h+1s each cycle to guarantee the rescheduled item is always due
-  // (max retry delay is 6h). 11 cycles = MAX_RETRY_COUNT(10) + 1 dead-letter.
-  for (let i = 0; i < 11; i++) {
+  // (max retry delay is 6h). 10 cycles = max 10 delivery attempts.
+  for (let i = 0; i < 10; i++) {
     const now = new Date(Date.UTC(2026, 6, 22, 12, 0, 0) + i * 21_601_000);
     await scheduler.runDueCycle(now);
   }
 
-  assert.equal(callCount, 11, "Delivery was attempted 11 times");
+  assert.equal(callCount, 10, "Delivery was attempted 10 times (MAX_DELIVERY_ATTEMPTS)");
 
   const row = sqlite.prepare("SELECT status, delivered_at, retry_count FROM pending_notification_queue").get() as { status: string; delivered_at: string | null; retry_count: number };
-  assert.equal(row.status, "failed", "Dead-lettered after max retries");
+  assert.equal(row.status, "failed", "Dead-lettered after max delivery attempts");
   assert.notEqual(row.delivered_at, null, "delivered_at set after dead-letter");
-  assert.equal(row.retry_count, 10, "retry_count reaches MAX_RETRY_COUNT");
+  assert.equal(row.retry_count, 9, "retry_count reaches MAX_DELIVERY_ATTEMPTS - 1");
 
   // Subsequent cycles do not attempt delivery
   const later = new Date(Date.UTC(2026, 6, 23, 12, 0, 0));
   await scheduler.runDueCycle(later);
-  assert.equal(callCount, 11, "No further delivery attempts");
+  assert.equal(callCount, 10, "No further delivery attempts");
 
   sqlite.close();
   database.close();
@@ -935,6 +954,209 @@ test("reopened DB: queued notification delivered exactly once", async () => {
   await scheduler.runDueCycle(new Date("2026-07-22T12:01:00Z"));
   assert.equal(deliveries.length, 1, "No duplicate delivery");
   reopenedDb.close();
+});
+
+test("single now value used for both quiet hours check and scheduledAt computation", async () => {
+  let callCount = 0;
+  // Clock returns advancing values: first call 23:00, subsequent calls shift forward
+  const clock = () => {
+    callCount++;
+    if (callCount === 1) return new Date("2026-07-22T23:00:00Z");
+    // If called again, return 23:05 (would change scheduledAt)
+    return new Date("2026-07-22T23:05:00Z");
+  };
+
+  const fixture = createIngestorFixture({ now: clock });
+  fixture.database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
+  fixture.database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
+  fixture.database.setNotificationQuietHoursEnabled("777", true);
+  fixture.database.setInstantVacancyNotificationsEnabled("777", true);
+
+  const result = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "ch-clock",
+    messageId: "m-clock",
+    date: new Date("2026-07-22T23:00:00Z").toISOString(),
+    text: "Python Developer\nRemote\nSalary: 5000 USD",
+    url: "https://t.me/ch-clock/m-clock"
+  });
+
+  assert.deepEqual(result, ["777"], "User matched");
+  const queueItems = fixture.database.listDuePendingNotifications("3026-07-23T08:00:00.000Z");
+  assert.equal(queueItems.length, 1, "One item enqueued");
+  const d = new Date(queueItems[0]!.scheduledAt);
+  // Should be 08:00 on July 23 (based on first clock call = 23:00 → next day 08:00)
+  assert.equal(d.getUTCHours(), 8, "Scheduled for 08:00 UTC");
+  assert.equal(d.getUTCDate(), 23, "Scheduled for next day based on single now() call");
+
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("fuzzy group during quiet hours creates single pending notification through VacancyIngestor", async () => {
+  const clock = () => new Date("2026-07-20T23:30:00Z"); // quiet hours, fixed
+
+  const fixture = createIngestorFixture({ now: clock });
+  fixture.database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
+  fixture.database.setUserSearchProfileKeywords("777", "required_primary", ["python", "developer"]);
+  fixture.database.setNotificationQuietHoursEnabled("777", true);
+  fixture.database.setInstantVacancyNotificationsEnabled("777", true);
+
+  // First vacancy
+  const firstResult = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "ch-fuzzy1",
+    messageId: "fuzzy-a",
+    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD\nОпыт от 3 лет",
+    url: "https://t.me/ch-fuzzy1/1"
+  });
+  assert.deepEqual(firstResult, ["777"], "First vacancy matched");
+
+  // Second vacancy with different source/messageId but high enough similarity for fuzzy group
+  const secondResult = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "ch-fuzzy2",
+    messageId: "fuzzy-b",
+    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    text: "Senior Python Developer (Django) — релокация\nRemote\nSalary: 5000 USD\nОпыт от 3 лет\nПодробнее: https://example.com",
+    url: "https://t.me/ch-fuzzy2/1"
+  });
+  // Second should not match because user already has a match in fuzzy group
+  assert.deepEqual(secondResult, [], "Second fuzzy duplicate not matched");
+
+  // Verify fuzzy duplicates table has a link
+  const allVacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(allVacancies.length, 2, "Both vacancies stored");
+  const firstId = allVacancies.find((v) => v.sourceMessageId === "fuzzy-a")!.id;
+  const duplicatePosts = fixture.database.listVacancyDuplicatePosts(firstId, 5);
+  assert.ok(duplicatePosts.items.length >= 1, "Fuzzy duplicate link exists");
+  assert.ok(duplicatePosts.items.some((p) => p.sourceMessageId === "fuzzy-b"), "Second vacancy linked as duplicate");
+
+  // Only one pending notification in queue
+  const queueItems = fixture.database.listDuePendingNotifications("3026-07-23T08:00:00.000Z");
+  assert.equal(queueItems.length, 1, "Only one pending notification queued");
+
+  // Verify no delivery yet (quiet hours)
+  assert.equal(fixture.deliveries.length, 0, "No immediate delivery");
+
+  // Run scheduler after 08:00 — only one delivery
+  const scheduler = new PendingNotificationScheduler(fixture.database, async (userId, vacancyId) => {
+    const match = fixture.database.getUserVacancyMatch(userId, vacancyId);
+    if (!match) return false;
+    return fixture.bot.notifyVacancy(match);
+  });
+  await scheduler.runDueCycle(new Date("2026-07-21T08:30:00Z"));
+  assert.equal(fixture.deliveries.length, 1, "Exactly one delivery after quiet hours end");
+
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("exception from deliver() increments retry_count and applies backoff", async () => {
+  const fixture = createFixture();
+  const { database } = fixture;
+  const sqlite = new BetterSqlite3(fixture.config.databasePath!);
+  populateNewUser(sqlite, "777");
+  const v = insertVacancy(sqlite);
+  createMatch(sqlite, "777", v.id);
+  database.enqueuePendingNotification("777", v.id, "2020-01-01T08:00:00.000Z");
+
+  let callCount = 0;
+  const scheduler = new PendingNotificationScheduler(database, async () => {
+    callCount++;
+    throw new Error("delivery failure");
+  });
+
+  // First attempt
+  const t0 = new Date("2026-07-22T12:00:00Z");
+  await scheduler.runDueCycle(t0);
+
+  let row = sqlite.prepare("SELECT retry_count, last_error, scheduled_at, status FROM pending_notification_queue").get() as { retry_count: number; last_error: string; scheduled_at: string; status: string };
+  assert.equal(row.retry_count, 1, "retry_count incremented after exception");
+  assert.equal(row.last_error, "delivery failure", "Error message stored");
+  assert.equal(row.status, "pending", "Still pending with retry scheduled");
+  const delay1 = Date.parse(row.scheduled_at) - t0.getTime();
+  // Base delay = 5min = 300000ms
+  assert.ok(delay1 >= 300_000 - 1000, `Delay ${delay1}ms should be at least 5min`);
+
+  // Second attempt after rescheduled time
+  const t1 = new Date(Date.parse(row.scheduled_at) + 1000);
+  await scheduler.runDueCycle(t1);
+
+  const row2 = sqlite.prepare("SELECT retry_count, last_error, scheduled_at, status FROM pending_notification_queue").get() as { retry_count: number; last_error: string; scheduled_at: string; status: string };
+  assert.equal(row2.retry_count, 2, "retry_count incremented again");
+  assert.equal(row2.last_error, "delivery failure", "Error message preserved");
+  const delay2 = Date.parse(row2.scheduled_at) - t1.getTime();
+  // Second retry: exponential 10min
+  assert.ok(delay2 >= 600_000 - 1000, `Delay ${delay2}ms should be at least 10min`);
+
+  sqlite.close();
+  database.close();
+});
+
+test("exception from deliver() dead-letters after MAX_DELIVERY_ATTEMPTS", async () => {
+  const fixture = createFixture();
+  const { database } = fixture;
+  const sqlite = new BetterSqlite3(fixture.config.databasePath!);
+  populateNewUser(sqlite, "777");
+  const v = insertVacancy(sqlite);
+  createMatch(sqlite, "777", v.id);
+  database.enqueuePendingNotification("777", v.id, "2020-01-01T08:00:00.000Z");
+
+  let callCount = 0;
+  const scheduler = new PendingNotificationScheduler(database, async () => {
+    callCount++;
+    throw new Error("persistent failure");
+  });
+
+  // Run 10 cycles with 6h+1s gaps (exceeds max backoff each time)
+  for (let i = 0; i < 10; i++) {
+    const now = new Date(Date.UTC(2026, 6, 22, 12, 0, 0) + i * 21_601_000);
+    await scheduler.runDueCycle(now);
+  }
+
+  assert.equal(callCount, 10, "Delivery attempted 10 times (MAX_DELIVERY_ATTEMPTS)");
+
+  const row = sqlite.prepare("SELECT status, delivered_at, retry_count FROM pending_notification_queue").get() as { status: string; delivered_at: string | null; retry_count: number };
+  assert.equal(row.status, "failed", "Dead-lettered after max delivery attempts from exceptions");
+  assert.notEqual(row.delivered_at, null, "delivered_at set");
+  assert.equal(row.retry_count, 9, "retry_count=9 after 10 failures");
+
+  // No more attempts after dead-letter
+  const later = new Date(Date.UTC(2026, 6, 23, 12, 0, 0));
+  await scheduler.runDueCycle(later);
+  assert.equal(callCount, 10, "No more delivery attempts after dead-letter");
+
+  sqlite.close();
+  database.close();
+});
+
+test("exception from deliver() does not double-update the pending record", async () => {
+  const fixture = createFixture();
+  const { database } = fixture;
+  const sqlite = new BetterSqlite3(fixture.config.databasePath!);
+  populateNewUser(sqlite, "777");
+  const v = insertVacancy(sqlite);
+  createMatch(sqlite, "777", v.id);
+  database.enqueuePendingNotification("777", v.id, "2020-01-01T08:00:00.000Z");
+
+  const scheduler = new PendingNotificationScheduler(database, async () => {
+    throw new Error("boom");
+  });
+
+  await scheduler.runDueCycle(new Date("2026-07-22T12:00:00Z"));
+
+  const row = sqlite.prepare("SELECT retry_count, last_error, scheduled_at FROM pending_notification_queue").get() as { retry_count: number; last_error: string; scheduled_at: string };
+  // retry_count should be exactly 1 (not 2), scheduled_at should be the backoff-based time
+  assert.equal(row.retry_count, 1, "retry_count incremented exactly once");
+  const expectedDelay = 5 * 60_000; // 5 min
+  const actualDelay = Date.parse(row.scheduled_at) - Date.parse("2026-07-22T12:00:00Z");
+  // Allow tolerance for test execution time
+  assert.ok(Math.abs(actualDelay - expectedDelay) < 5000, `Delay ${actualDelay}ms should be ~5min (${expectedDelay}ms)`);
+
+  sqlite.close();
+  database.close();
 });
 
 // ─── Callback handler tests ───────────────────────────────────

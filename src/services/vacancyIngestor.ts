@@ -301,8 +301,9 @@ export class VacancyIngestor {
         continue;
       }
 
-      if (userSettings.notificationQuietHoursEnabled && isInQuietHours(this.now(), this.config.timeZone)) {
-        const scheduledAt = computeNextQuietHoursEnd(this.now(), this.config.timeZone);
+      const now = this.now();
+      if (userSettings.notificationQuietHoursEnabled && isInQuietHours(now, this.config.timeZone)) {
+        const scheduledAt = computeNextQuietHoursEnd(now, this.config.timeZone);
         this.database.enqueuePendingNotification(user.userId, matchedVacancy.id, scheduledAt);
         logger.info(
           { userId: user.userId, vacancyId: matchedVacancy.id, scheduledAt },
