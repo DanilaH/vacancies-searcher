@@ -1,6 +1,6 @@
 # Next Task
 
-Only one immediate implementation task belongs in this file.
+PR #27 (`feat/trusted-mts-jobs`) is under review — MTS Jobs trusted adapter with archive detection.
 
 ## Active: trusted adapter research for `job.mts.ru`
 

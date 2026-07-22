@@ -411,8 +411,8 @@ test("mts_jobs: valid vacancy page enriches and creates vacancy", async () => {
   fixture.database.close();
 });
 
-test("mts_jobs: missing page prevents posting", async () => {
-  const fixture = createMtsJobsFixture("Page not found");
+test("mts_jobs: HTTP 404 prevents posting", async () => {
+  const fixture = createMtsJobsFixture("", () => Promise.resolve(new Response("Not found", { status: 404 })));
   const matched = await fixture.ingestor.handle({
     source: "telegram_web_preview",
     channel: "itjobs",
@@ -420,6 +420,56 @@ test("mts_jobs: missing page prevents posting", async () => {
     date: new Date().toISOString(),
     text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/999",
     url: "https://t.me/itjobs/mts-jobs-404"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("mts_jobs: HTTP 410 prevents posting", async () => {
+  const fixture = createMtsJobsFixture("", () => Promise.resolve(new Response("Gone", { status: 410 })));
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-410",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/999",
+    url: "https://t.me/itjobs/mts-jobs-410"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("mts_jobs: archived page (200 with OutOfStock) prevents posting", async () => {
+  const archivedHtml = `<!DOCTYPE html><html lang="ru"><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Product",
+      "name": "Senior AI Engineer [KION GenAI]",
+      "description": "<p>Разработка AI-решений.</p>",
+      "brand": "МТС",
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/OutOfStock"
+      }
+    }
+  ]
+}
+</script></head><body><h1>Senior AI Engineer [KION GenAI]</h1><main>Archived</main></body></html>`;
+  const fixture = createMtsJobsFixture(archivedHtml);
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "itjobs",
+    messageId: "mts-jobs-archived",
+    date: new Date().toISOString(),
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/archived-123",
+    url: "https://t.me/itjobs/mts-jobs-archived"
   });
   assert.deepEqual(matched, []);
   assert.deepEqual(fixture.deliveries, []);

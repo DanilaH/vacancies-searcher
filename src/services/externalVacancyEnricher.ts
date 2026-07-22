@@ -351,6 +351,10 @@ function fromMtsJobs(url: string, html: string): ExternalVacancyEnrichmentResult
   const description = htmlFragmentToText(asString(product.description) ?? "");
   const company = asString(product.brand);
   const offers = product.offers;
+  const availability = offers && typeof offers === "object"
+    ? asString((offers as Record<string, unknown>).availability)
+    : null;
+  if (availability && /outofstock/i.test(availability)) return null;
   const salary = offers && typeof offers === "object"
     ? asString((offers as Record<string, unknown>).price)
     : null;

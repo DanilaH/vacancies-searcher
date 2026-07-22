@@ -42,7 +42,7 @@ Implemented and working at code level:
 - Trusted vacancy services admin section.
 - Multi-vacancy split for structured Telegram aggregator posts.
 - External enrichment from active trusted services.
-- Built-in specialized adapters for FindMyRemote, Teletype, Finder Work, Telegraph, and InGame Job.
+- Built-in specialized adapters for FindMyRemote, Teletype, Finder Work, Telegraph, InGame Job, Designer.ru, and MTS Jobs.
 - Repair script for old multi-vacancy posts.
 - Local analytics in SQLite and optional PostHog forwarding.
 - Automatic backup and technical data cleanup.
@@ -76,11 +76,9 @@ Latest known database state after trusted-service adapter/path-guard work:
 Pending because generic parser did not confidently parse the sample:
 
 - `career.sonderads.com`
-- `designer.ru`
 - `itcharm.com`
 - `job.alfabank.ru`
 - `job.megafon.ru`
-- `job.mts.ru`
 - `rabota.sber.ru`
 - `youngjunior.ru`
 
@@ -136,6 +134,8 @@ Known from recent work:
 - Finder Work accepts only `https://finder.work/vacancies/{id}` and parses JSON-LD before conservative HTML fallback.
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
 - Broad-domain adapters/path guards exist for safe shapes on `www.aviasales.ru`, `cloud.ru`, `www.tbank.ru`, and `yandex.ru`, but they are not seeded as active built-ins.
+- MTS Jobs adapter: Product JSON-LD parser with archive detection (`offers.availability: OutOfStock` → definitive rejection). URL shape `https://job.mts.ru/vacancy/{numeric_id}`. 3 parsing tests (valid, archive, missing Product), 4 ingestion tests (valid, 404, 410, archived 200, 503, oversized, redirect). Full suite: 721 tests, typecheck clean, build clean.
+- Designer.ru adapter: JSON-LD-only parser (`JobPosting`). URL shape `https://designer.ru/{t|u|r|m}/{slug}/`. Full suite: 721 tests, typecheck clean, build clean.
 
 - Owner-only `/fuzzyreport` command: aggregates fuzzy duplicate stats for the last 30 days via `getFuzzyDedupStats(sinceIso)` in database layer. Reports total links, unique groups (connected components via union-find, iteratively expanded to full transitivity), average/min/max score, score buckets (zero-filled), top source/channel pairs (UNION ALL both sides), group size distribution, and last match date. `buildFuzzyDedupReport` formats the output. `handleFuzzyDedupReportCommand` enforces owner-only access. 24 tests cover aggregation, groups, buckets, time filtering, source ranking, deep transitive chains, independent groups, access control, and privacy (no vacancy text, contacts, or user IDs).
 - Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). Company-only matches with titleSim < 0.70 are rejected. 18 unit tests, 2 ingestion integration tests, and 11 regression tests pass.
@@ -145,6 +145,7 @@ Known from recent work:
 - `vacancy_fuzzy_duplicates` table stores `vacancy_id`, `duplicate_vacancy_id`, `score`, `reasons_json`, ordered so `vacancy_id < duplicate_vacancy_id`.
 - `idx_vacancies_message_date` index added for efficient time-window queries.
 - Notification quiet hours feature: user-toggleable `notification_quiet_hours_enabled` setting (default false). When enabled with instant notifications on, vacancies matched during 23:00–08:00 (config timezone) are enqueued to `pending_notification_queue` and delivered at 08:00 local time via `PendingNotificationScheduler`. Delivery respects hidden/applied cancellation, retries with backoff (`MAX_DELIVERY_ATTEMPTS=10`, exponential 5min–6h, dead-letter on exhaustion), and survives process restart via SQLite persistence. `VacancyIngestor` accepts `now: () => Date` for controlled time testing; single `now` value shared between quiet hours check and `scheduledAt`. Exceptions in deliver() go through the same backoff/dead-letter path. 62 tests cover migration, DB operations, scheduler, timezone utils, DST, keyboard, formatter, dedup, isolation, retry limits, exception backoff, ingestor integration, fuzzy integration, single-now semantics, and callback handler.
+- MTS Jobs adapter (`mts_jobs`): specialized adapter for `job.mts.ru` that parses `Product` JSON-LD (`@type: Product` inside `@graph`). Extracts `name` as title, `brand` as company, and optional `offers.price` as salary. Archive detection via `offers.availability` — rejects `OutOfStock` as definitive. URL shape guard: exactly `/vacancy/{numeric_id}`. Subdomains like `www.job.mts.ru` rejected. Listing page at `/vacancies` rejected. 3 specialized parsing tests, 4 ingestion tests (valid, 404, 410, archived 200, 503, oversized, redirect). Seeded `pending` in DB, activation requires probe + admin approval.
 
 Before starting new code work, rerun:
 
@@ -157,11 +158,13 @@ npx tsc -p tsconfig.json --pretty false
 ## Git / Workspace Notes
 
 - Git metadata is available.
-- Current branch: `feat/notification-quiet-hours` (PR #23).
+- Current branch: `feat/trusted-mts-jobs` (PR #27).
 - PR #19 (`feature/fuzzy-vacancy-dedup` → `master`) merged.
 - PR #20 (`feat/instant-vacancy-notifications-toggle` → `master`) merged.
 - PR #21 (`feat/fuzzy-dedup-report` → `master`) merged.
 - PR #23 (`feat/notification-quiet-hours`) is open — night quiet hours for instant notifications.
+- PR #25 (`feat/trusted-designer-ru`) merged — Designer.ru adapter.
+- PR #27 (`feat/trusted-mts-jobs`) is open — MTS Jobs adapter with archive detection.
 
 ## Known Problems
 

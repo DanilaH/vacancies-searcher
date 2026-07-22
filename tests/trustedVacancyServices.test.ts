@@ -842,6 +842,38 @@ test("mts_jobs: adapter parses valid vacancy page with Product JSON-LD, rejects 
     /HTTP 404/u
   );
 
+  // Archived page (HTTP 200 with OutOfStock Product JSON-LD) is rejected
+  const enricherArchived = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        `<!DOCTYPE html><html lang="ru"><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "WebSite", "name": "Работа в МТС" },
+    {
+      "@type": "Product",
+      "name": "Senior AI Engineer [KION GenAI]",
+      "description": "<p>Обязанности: разработка AI-решений.</p>",
+      "brand": "МТС",
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/OutOfStock"
+      }
+    }
+  ]
+}
+</script></head><body><h1>Senior AI Engineer [KION GenAI]</h1><main>SPA placeholder</main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+  await assert.rejects(() =>
+    enricherArchived.enrich("https://job.mts.ru/vacancy/888", true),
+    /confident vacancy/u
+  );
+
   // Non-vacancy page (no Product JSON-LD, no confident HTML content)
   const enricherNonVacancy = new ExternalVacancyEnricher(config, database, {
     assertSafeUrl: async (url) => url,
