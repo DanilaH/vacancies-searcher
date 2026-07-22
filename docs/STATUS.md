@@ -1,57 +1,86 @@
 # Project Status
 
-Last updated: 2026-07-07
+Last updated: 2026-07-22
 
-## Current State
+## Source of truth
 
-The bot is an existing TypeScript/Node.js Telegram vacancy bot with SQLite storage. It collects vacancies from Telegram web preview and optional sources, deduplicates them, matches them against per-user search profiles, and sends Telegram notifications plus weekly/status screens.
+- Product priorities: `docs/product/ROADMAP.md`.
+- Agent execution queue: `docs/ROADMAP.md`.
+- Detailed implemented state: `.agent/CURRENT_STATE.md`.
+- Exactly one immediate task: `.agent/NEXT_TASK.md`.
 
-The detailed engineering handoff remains in `.agent/CURRENT_STATE.md`.
+If these files conflict, current code and merged tests win for implementation facts, while `docs/product/ROADMAP.md` wins for product order.
 
-## Completed Recently
+## Current state
 
-- Telegram web preview catch-up after channel polling is stale.
-- Valid no-text Telegram preview posts now advance observed cursors.
-- Weekly feed supports 7/14/30-day windows and preserves the selected window through vacancy-card return navigation.
-- Settings, weekly, hidden reason, applied workflow, daily digest, and navigation UX improvements are implemented and verified.
+The bot is a production-oriented TypeScript/Node.js Telegram vacancy assistant with SQLite storage. It collects from Telegram and optional sources, matches vacancies against per-user profiles, manages vacancy/application workflows, and provides owner/admin operations.
 
-## In Progress
+Recent merged capabilities include:
 
-- Planning workflow bootstrap.
+- fuzzy near-duplicate grouping and owner report;
+- instant-notification toggle;
+- quiet hours with persistent delivery queue and bounded retry;
+- trusted adapter for `ingamejob.com`;
+- JSON-LD-only trusted adapter for `designer.ru`.
 
-## Next Task
+Latest accepted master checkpoint:
 
-`docs/tasks/TASK-001-trusted-service-coverage.md`
+- PR #25 merged;
+- merge commit: `08ae6b37c51fb6177eb9d3342e2f4ff4b9c05562`.
 
-Continue trusted-service coverage for pending valid vacancy sites without broadening generic trust too far.
+## In progress
 
-## Risks
+Trusted-service research and adapter work for `job.mts.ru` is running in a separate feature branch.
 
-- Git metadata is unavailable in the current workspace, so branch/diff enforcement must be handled by the user or a fresh git-enabled workspace.
-- `.env` exists locally and must not be printed, committed, or copied into docs.
-- Some task prompts assume feature branches; this workspace currently reports `fatal: not a git repository`.
-- Broad trusted domains can create false positives if whole-host trust is added. Keep path-scoped guards.
-- Telegram source behavior depends on public `t.me/s` HTML shape and may break if Telegram changes markup.
+This documentation sync intentionally does not modify trusted-service source, schema, tests, `.agent/CURRENT_STATE.md`, or `docs/tasks/TASK-001-trusted-service-coverage.md`, so it can proceed without conflicting with the adapter implementation.
 
-## Decisions Needed
+## Next after the active adapter
 
-- Whether `.agent/NEXT_TASK.md` remains a full task description or becomes a pointer to the active `docs/tasks/TASK-XXX` file.
-- Whether Planner/Executor agents should be instructed to refuse production-code work when no task file exists.
-- Whether manual Telegram QA uses the live local bot or a separate test bot.
+1. Decide whether the short trusted-adapter cycle needs one more proven domain or should stop.
+2. Run a manual Telegram UX smoke using a test bot/chat.
+3. Improve “why no results” diagnostics.
+4. Improve multi-vacancy aggregate isolation.
+5. Add owner-facing channel quality analytics.
 
-## Parallelization Watch
+The fixed product order is maintained in `docs/product/ROADMAP.md`.
 
-- Do not run multiple tasks that edit bot callbacks/keyboards at the same time.
-- Do not combine storage migrations with unrelated UI work.
-- Trusted-service adapter work can run separately from documentation/audit work.
-- Source polling changes should not run in parallel with ingestion/rematcher changes unless ownership is explicit.
+## Current risks
 
-## Verification Baseline
+- Some candidate vacancy sites cannot be safely activated because their URL shape or parser confidence is not proven.
+- Broad or subdomain trust can create false positives and SSRF-like exposure; keep exact-host and path guards.
+- Telegram web preview depends on public `t.me/s` HTML and cannot read private/invite-only sources.
+- Vacancy extraction still has uneven coverage for geography, company and free-form fields.
+- Multi-vacancy aggregate posts can still suffer cross-vacancy stop-word or content contamination.
+- A live end-to-end Telegram smoke is still required after the accumulated UX and notification changes.
+- `.env` contains secrets and must never be printed or committed.
 
-Use these checks for most implementation tasks:
+## Planning decisions
 
-```powershell
+Resolved:
+
+- `docs/product/ROADMAP.md` is the canonical product roadmap.
+- `docs/ROADMAP.md` is an execution queue, not a second product roadmap.
+- `.agent/NEXT_TASK.md` contains only one immediate task.
+- Production work should use a bounded task, branch from current `master`, open a PR and stop for review.
+- Documentation-only work may run alongside implementation when files do not overlap.
+
+Still to decide:
+
+- whether manual Telegram QA uses the live bot or a dedicated test bot;
+- whether another trusted domain is worth implementing after `job.mts.ru`.
+
+## Verification baseline
+
+Production changes:
+
+```bash
 npm test
-npm run build
 npx tsc -p tsconfig.json --pretty false
+npm run build
 ```
+
+Documentation-only roadmap sync:
+
+- verify all referenced files exist;
+- verify the same active task and ordering appear in roadmap, status and next-task documents;
+- inspect the PR diff for accidental implementation changes.
