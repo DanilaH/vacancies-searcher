@@ -6,7 +6,9 @@ import path from "node:path";
 import * as grammy from "grammy";
 
 import { VacancyDatabase } from "../src/db/database";
-import { processRelevanceFeedback, handleVacancyRelevanceCallback } from "../src/bot/relevanceFeedbackHandler";
+import { processRelevanceFeedback, handleVacancyRelevanceCallback, handleVacancyHideCallback } from "../src/bot/relevanceFeedbackHandler";
+import type { VacancyHideUI } from "../src/bot/relevanceFeedbackHandler";
+import type { AnalyticsService } from "../src/analytics/analyticsService";
 import { createVacancyKeyboardWithActions } from "../src/bot/keyboards";
 import { createTestConfig } from "./helpers";
 
@@ -700,6 +702,128 @@ test("keyboard builder uses DB feedback value for not_relevant marking", () => {
   const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({ id: vacId }), true, "compact", undefined, value ?? undefined);
   const allLabels = labels(keyboard);
   assert.ok(allLabels.includes("👎 Не подходит ✅"));
+  assert.ok(allLabels.includes("👍 Релевантна"));
+
+  database.close();
+});
+
+// ─── Production-flow handler tests: handleVacancyHideCallback ────────────────
+
+function makeHideUI(): { ui: VacancyHideUI; calls: { dismiss: number; reason: number } } {
+  const calls = { dismiss: 0, reason: 0 };
+  return {
+    calls,
+    ui: {
+      dismissOrRestoreWeekly: async () => { calls.dismiss++; },
+      showReasonPrompt: async () => { calls.reason++; }
+    }
+  };
+}
+
+type AnalyticsSpy = ReturnType<typeof makeAnalyticsSpy>;
+function makeAnalyticsSpy() {
+  const events: Array<{ eventName: string; userId: string; properties?: Record<string, unknown> }> = [];
+  return {
+    events,
+    capture: (event: { eventName: string; userId: string; properties?: Record<string, unknown> }) => {
+      events.push({ eventName: event.eventName, userId: event.userId, properties: event.properties as Record<string, unknown> | undefined });
+      return Promise.resolve();
+    }
+  };
+}
+
+test("handleHide: forged callback without match — forbidden, no side effects, single answer", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "prod1", "text");
+  const spy = makeAnalyticsSpy();
+  const analytics = spy as unknown as AnalyticsService;
+  const { ui, calls } = makeHideUI();
+
+  const ctx: MockCtx = makeMockContext(777, `vacancy:status:${vacId}:hidden:compact`);
+  const result = await handleVacancyHideCallback(ctx, database, analytics, "777", vacId, "inbox", ui);
+
+  assert.equal(result, "forbidden");
+  assert.equal(ctx.answerText, "Вакансия недоступна");
+  assert.equal(ctx.answerCount, 1, "exactly one answer");
+  assert.equal(database.getUserVacancyStatus("777", vacId), "inbox", "status unchanged");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null, "no feedback created");
+  assert.equal(calls.dismiss, 0, "dismiss UI not called");
+  assert.equal(calls.reason, 0, "reason UI not called");
+  assert.equal(spy.events.length, 0, "no analytics events captured");
+
+  database.close();
+});
+
+test("handleHide: valid hide — status hidden, feedback recorded, single answer, UI called", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "prod2", "text");
+  insertMatch(database, "777", vacId);
+  const spy = makeAnalyticsSpy();
+  const analytics = spy as unknown as AnalyticsService;
+  const { ui, calls } = makeHideUI();
+
+  const ctx: MockCtx = makeMockContext(777, `vacancy:status:${vacId}:hidden:compact`);
+  const result = await handleVacancyHideCallback(ctx, database, analytics, "777", vacId, "inbox", ui);
+
+  assert.equal(result, "hidden");
+  assert.equal(ctx.answerText, "👎 Скрыто.");
+  assert.equal(ctx.answerCount, 1, "exactly one answer");
+  assert.equal(database.getUserVacancyStatus("777", vacId), "hidden", "status changed to hidden");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "not_relevant", "feedback created");
+  assert.equal(calls.dismiss, 1, "dismiss UI called once");
+  assert.equal(calls.reason, 1, "reason UI called once");
+
+  const feedbackEvents = spy.events.filter((e) => e.eventName === "vacancy_relevance_feedback");
+  assert.equal(feedbackEvents.length, 1, "feedback analytics captured");
+  assert.equal(feedbackEvents[0].properties?.value, "not_relevant");
+
+  const statusEvents = spy.events.filter((e) => e.eventName === "vacancy_status_changed");
+  assert.equal(statusEvents.length, 1, "status change analytics captured");
+  assert.equal(statusEvents[0].properties?.next_status, "hidden");
+  assert.equal(statusEvents[0].properties?.previous_status, "inbox");
+
+  database.close();
+});
+
+test("handleHide: second hide returns forbidden (no match after deletion)", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "prod3", "text");
+  const spy = makeAnalyticsSpy();
+  const analytics = spy as unknown as AnalyticsService;
+  const { ui, calls } = makeHideUI();
+
+  const ctx: MockCtx = makeMockContext(777, `vacancy:status:${vacId}:hidden:compact`);
+  const result = await handleVacancyHideCallback(ctx, database, analytics, "777", vacId, "inbox", ui);
+
+  assert.equal(result, "forbidden");
+  assert.equal(ctx.answerCount, 1, "single answer on second hide");
+  assert.equal(ctx.answerText, "Вакансия недоступна");
+  assert.equal(spy.events.length, 0, "no analytics on forbidden");
+  assert.equal(calls.dismiss, 0, "dismiss not called on forbidden");
+  assert.equal(calls.reason, 0, "reason not called on forbidden");
+
+  database.close();
+});
+
+test("handleHide: reopening card shows persisted not_relevant feedback via keyboard", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "prod4", "text");
+  insertMatch(database, "777", vacId);
+  const spy = makeAnalyticsSpy();
+  const analytics = spy as unknown as AnalyticsService;
+  const { ui } = makeHideUI();
+
+  const ctx: MockCtx = makeMockContext(777, `vacancy:status:${vacId}:hidden:compact`);
+  await handleVacancyHideCallback(ctx, database, analytics, "777", vacId, "inbox", ui);
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), "not_relevant");
+
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({ id: vacId }), true, "compact", undefined, "not_relevant");
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👎 Не подходит ✅"), "reopened card shows not_relevant checkmark");
   assert.ok(allLabels.includes("👍 Релевантна"));
 
   database.close();
