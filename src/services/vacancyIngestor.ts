@@ -3,7 +3,7 @@ import { BotController } from "../bot/createBot";
 import { AppConfig } from "../config";
 import { VacancyDatabase } from "../db/database";
 import { logger } from "../logger";
-import { RawVacancyItem, VacancyRecord } from "../types";
+import { AnalyticsEventName, RawVacancyItem, VacancyRecord } from "../types";
 import { extractSupportedCompanyCareerUrl } from "./companyCareerUrls";
 import { extractContacts } from "./contactExtractor";
 import { VacancyFilter } from "./vacancyFilter";
@@ -11,6 +11,11 @@ import { evaluateSearchProfiles } from "./multiProfileMatching";
 import { trySaveRejectedAudit } from "./rejectedMatchAuditService";
 import { ExternalVacancyEnricher, ExternalVacancyEnrichmentError } from "./externalVacancyEnricher";
 import { extractTrustedVacancyUrlCandidates, isTrustedVacancyUrlShape } from "./trustedVacancyServices";
+import {
+  computeFuzzyMatch,
+  FUZZY_MATCH_THRESHOLD,
+  shouldConsiderFuzzyMatch
+} from "./vacancyFuzzyMatcher";
 
 const TRUSTED_URL_SHAPE_REJECTION = "Trusted vacancy URL shape is not supported for this service.";
 
@@ -69,6 +74,12 @@ export class VacancyIngestor {
 
     if (result.kind === "new_vacancy") {
       const matchedUserIds = await this.matchVacancyForEligibleUsers(enrichedItem, result.vacancy);
+
+      try {
+        this.attemptFuzzyDuplicateLink(result.vacancy);
+      } catch (error) {
+        logger.warn({ err: error, vacancyId: result.vacancy.id }, "Fuzzy duplicate matching failed.");
+      }
 
       logger.info(
         {
@@ -259,4 +270,46 @@ export class VacancyIngestor {
     return matchedUserIds;
   }
 
+  private attemptFuzzyDuplicateLink(vacancy: VacancyRecord): void {
+    const recentVacancies = this.database.listVacanciesSince(30);
+    for (const candidate of recentVacancies) {
+      if (candidate.id === vacancy.id) {
+        continue;
+      }
+      if (!shouldConsiderFuzzyMatch(vacancy, candidate)) {
+        continue;
+      }
+      const result = computeFuzzyMatch(vacancy, candidate);
+      if (!result.isMatch) {
+        continue;
+      }
+      this.database.recordVacancyFuzzyDuplicate(vacancy.id, candidate.id, result.score, result.reasons);
+      this.analytics.capture({
+        eventName: "vacancy_fuzzy_duplicate_found" as AnalyticsEventName,
+        distinctId: "system",
+        properties: {
+          vacancy_id: vacancy.id,
+          duplicate_vacancy_id: candidate.id,
+          score: result.score,
+          reasons: result.reasons.join("; "),
+          source_name: vacancy.sourceName,
+          duplicate_source_name: candidate.sourceName,
+          source_channel: vacancy.sourceChannel,
+          duplicate_source_channel: candidate.sourceChannel
+        }
+      }).catch((error: unknown) => {
+        logger.warn({ err: error }, "Failed to capture fuzzy duplicate analytics.");
+      });
+      logger.info(
+        {
+          vacancyId: vacancy.id,
+          duplicateVacancyId: candidate.id,
+          score: result.score,
+          reasons: result.reasons
+        },
+        "Fuzzy duplicate link created."
+      );
+      break;
+    }
+  }
 }

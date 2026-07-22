@@ -285,7 +285,8 @@ export type AnalyticsEventName =
   | "vacancy_status_changed"
   | "vacancy_relevance_feedback"
   | "poll_cycle_completed"
-  | "poll_cycle_failed";
+  | "poll_cycle_failed"
+  | "vacancy_fuzzy_duplicate_found";
 
 export type AnalyticsPropertyValue =
   | string

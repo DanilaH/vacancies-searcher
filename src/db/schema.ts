@@ -65,7 +65,8 @@ export type SchemaTableName =
   | "channel_discovery_checks"
   | "owner_report_delivery"
   | "vacancy_relevance_feedback"
-  | "rejected_match_audit";
+  | "rejected_match_audit"
+  | "vacancy_fuzzy_duplicates";
 
 export function createBaseSchema(db: SqliteDatabase): void {
   db.exec(`
@@ -147,6 +148,17 @@ export function createBaseSchema(db: SqliteDatabase): void {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(source_name, source_channel, source_message_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS vacancy_fuzzy_duplicates (
+      vacancy_id INTEGER NOT NULL,
+      duplicate_vacancy_id INTEGER NOT NULL,
+      score REAL NOT NULL,
+      reasons_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (vacancy_id, duplicate_vacancy_id),
+      FOREIGN KEY (vacancy_id) REFERENCES vacancies(id),
+      FOREIGN KEY (duplicate_vacancy_id) REFERENCES vacancies(id)
     );
 
     CREATE TABLE IF NOT EXISTS company_career_sources (
@@ -498,6 +510,21 @@ function ensureOwnerReportDeliveryTable(db: SqliteDatabase): void {
   `);
 }
 
+function ensureVacancyFuzzyDuplicatesTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vacancy_fuzzy_duplicates (
+      vacancy_id INTEGER NOT NULL,
+      duplicate_vacancy_id INTEGER NOT NULL,
+      score REAL NOT NULL,
+      reasons_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (vacancy_id, duplicate_vacancy_id),
+      FOREIGN KEY (vacancy_id) REFERENCES vacancies(id),
+      FOREIGN KEY (duplicate_vacancy_id) REFERENCES vacancies(id)
+    );
+  `);
+}
+
 export function runMigrations(db: SqliteDatabase): void {
   ensureUserSettingsColumns(db);
   ensureRawMessagesColumns(db);
@@ -520,6 +547,7 @@ export function runMigrations(db: SqliteDatabase): void {
   ensureOwnerReportDeliveryTable(db);
   ensureVacancyRelevanceFeedbackTable(db);
   ensureRejectedMatchAuditTable(db);
+  ensureVacancyFuzzyDuplicatesTable(db);
 }
 
 function ensureUserSettingsColumns(db: SqliteDatabase): void {
@@ -1362,7 +1390,8 @@ export function getSchemaTableColumns(db: SqliteDatabase, tableName: SchemaTable
     channel_discovery_checks: "PRAGMA table_info(channel_discovery_checks)",
     owner_report_delivery: "PRAGMA table_info(owner_report_delivery)",
     vacancy_relevance_feedback: "PRAGMA table_info(vacancy_relevance_feedback)",
-    rejected_match_audit: "PRAGMA table_info(rejected_match_audit)"
+    rejected_match_audit: "PRAGMA table_info(rejected_match_audit)",
+    vacancy_fuzzy_duplicates: "PRAGMA table_info(vacancy_fuzzy_duplicates)"
   };
   const statement = pragmaByTable[tableName];
   if (!statement) {

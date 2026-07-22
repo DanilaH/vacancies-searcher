@@ -2792,50 +2792,68 @@ export class VacancyDatabase {
       vacancy.sourceMessageId
     ];
 
+    const fuzzyLinked = db
+      .prepare(`
+        SELECT duplicate_vacancy_id AS linked_id FROM vacancy_fuzzy_duplicates WHERE vacancy_id = ?
+        UNION
+        SELECT vacancy_id AS linked_id FROM vacancy_fuzzy_duplicates WHERE duplicate_vacancy_id = ?
+      `)
+      .all(vacancyId, vacancyId) as Array<{ linked_id: number }>;
+
+    const fuzzyIds: number[] = fuzzyLinked.map((r) => r.linked_id);
+
+    const baseSql = `
+      SELECT source_name, source_channel, source_message_id, message_date, url
+      FROM raw_messages
+      WHERE ${duplicatePredicate}
+        AND NOT (source_name = ? AND source_channel = ? AND source_message_id = ?)
+    `;
+
+    const fuzzySql =
+      fuzzyIds.length > 0
+        ? `UNION
+         SELECT v.source_name, v.source_channel, v.source_message_id, v.message_date, v.url
+         FROM vacancies v
+         WHERE v.id IN (${fuzzyIds.map(() => "?").join(",")})`
+        : "";
+
+    const totalParams = fuzzyIds.length > 0 ? [...canonicalParams, ...fuzzyIds] : canonicalParams;
+    const selectParams = fuzzyIds.length > 0
+      ? [...canonicalParams, ...fuzzyIds, safeLimit]
+      : [...canonicalParams, safeLimit];
+
+    const countSql = `SELECT COUNT(*) AS count FROM (${baseSql} ${fuzzySql})`;
+    const selectSql = `${baseSql} ${fuzzySql} ORDER BY message_date DESC, source_name, source_channel LIMIT ?`;
+
     const total =
       (
-        db
-          .prepare(
-            `
-              SELECT COUNT(*) AS count
-              FROM raw_messages
-              WHERE ${duplicatePredicate}
-                AND NOT (
-                  source_name = ?
-                  AND source_channel = ?
-                  AND source_message_id = ?
-                )
-            `
-          )
-          .get(...canonicalParams) as CountRow | undefined
+        db.prepare(countSql).get(...totalParams) as CountRow | undefined
       )?.count ?? 0;
 
-    const rows = db
-      .prepare(
-        `
-          SELECT
-            source_name,
-            source_channel,
-            source_message_id,
-            message_date,
-            url
-          FROM raw_messages
-          WHERE ${duplicatePredicate}
-            AND NOT (
-              source_name = ?
-              AND source_channel = ?
-              AND source_message_id = ?
-            )
-          ORDER BY message_date DESC, id DESC
-          LIMIT ?
-        `
-      )
-      .all(...canonicalParams, safeLimit) as RawMessageDuplicateRow[];
+    const rows = db.prepare(selectSql).all(...selectParams) as RawMessageDuplicateRow[];
 
     return {
       items: rows.map((row) => mapVacancyDuplicatePost(row)),
       total
     };
+  }
+
+  recordVacancyFuzzyDuplicate(
+    vacancyId: number,
+    duplicateVacancyId: number,
+    score: number,
+    reasons: string[]
+  ): void {
+    const [first, second] =
+      vacancyId < duplicateVacancyId ? [vacancyId, duplicateVacancyId] : [duplicateVacancyId, vacancyId];
+    this.getDb()
+      .prepare(
+        `
+          INSERT OR IGNORE INTO vacancy_fuzzy_duplicates (vacancy_id, duplicate_vacancy_id, score, reasons_json)
+          VALUES (?, ?, ?, ?)
+        `
+      )
+      .run(first, second, score, JSON.stringify(reasons));
   }
 
   listRecentRawMessageTexts(days: number, limit = 500): string[] {
