@@ -158,11 +158,11 @@ npx tsc -p tsconfig.json --pretty false
 ## Git / Workspace Notes
 
 - Git metadata is available.
-- Current branch: `feat/notification-quiet-hours` (PR #22).
+- Current branch: `feat/notification-quiet-hours` (PR #23).
 - PR #19 (`feature/fuzzy-vacancy-dedup` → `master`) merged.
 - PR #20 (`feat/instant-vacancy-notifications-toggle` → `master`) merged.
 - PR #21 (`feat/fuzzy-dedup-report` → `master`) merged.
-- PR #22 (`feat/notification-quiet-hours`) is open — night quiet hours for instant notifications.
+- PR #23 (`feat/notification-quiet-hours`) is open — night quiet hours for instant notifications.
 
 ## Known Problems
 

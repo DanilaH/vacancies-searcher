@@ -1,6 +1,6 @@
 # Next Task
 
-PR #22 (`feat/notification-quiet-hours`) is under review — night quiet hours for instant notifications.
+PR #23 (`feat/notification-quiet-hours`) is under review — night quiet hours for instant notifications.
 
 ## Feature summary
 
