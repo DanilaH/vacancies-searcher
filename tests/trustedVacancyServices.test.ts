@@ -313,3 +313,182 @@ test("Teletype adapter parses confident vacancy pages and rejects missing or non
   await assert.rejects(() => enricher.enrich("https://teletype.in/@courierus/notes", true), /confident vacancy/u);
   database.close();
 });
+
+test("ingamejob: correct vacancy URL is accepted, HTTP and other hostnames rejected", () => {
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/job/senior-game-character-artist"), true);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/ru/job/backend-software-engineer"), true);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/pl/job/level-artist-31"), true);
+  // HTTP rejected via normalizeTrustedVacancyUrl
+  assert.throws(() => normalizeTrustedVacancyUrl("http://ingamejob.com/en/job/some-role"), /HTTPS/u);
+  // Wrong hostname
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://other-host.com/en/job/role"), false);
+  // Subdomain rejected
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://us.ingamejob.com/en/job/role"), false);
+  // Home page
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en"), false);
+  // Job listing / search
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/jobs"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/jobs/p/3d-artist"), false);
+  // Company page
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/company/renderer-studios"), false);
+  // Salaries / events / courses
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/salaries"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/events"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/courses"), false);
+  // Auth pages
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/login"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/register"), false);
+  // Archived / away variant (not accepted)
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/en/away/job/archived-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("ingamejob", "https://ingamejob.com/uk/job/1"), true);
+});
+
+test("ingamejob: detected as known host via detectTrustedVacancyService", () => {
+  assert.equal(detectTrustedVacancyService("https://ingamejob.com/en/job/senior-game-character-artist").adapter, "ingamejob");
+  assert.equal(detectTrustedVacancyService("https://ingamejob.com/en/job/senior-game-character-artist").displayName, "InGame Job");
+  assert.equal(detectTrustedVacancyService("https://ingamejob.com/en/job/senior-game-character-artist").hostname, "ingamejob.com");
+});
+
+test("ingamejob: invalid path throws for non-vacancy URL shapes", () => {
+  assert.throws(() => detectTrustedVacancyService("https://ingamejob.com/en/jobs"), /path is not supported/u);
+  assert.throws(() => detectTrustedVacancyService("https://ingamejob.com/en/company/renderer-studios"), /path is not supported/u);
+  assert.throws(() => detectTrustedVacancyService("https://ingamejob.com/"), /path is not supported/u);
+});
+
+test("ingamejob: adapter parses valid vacancy page, rejects missing and non-vacancy pages", async () => {
+  const { config, database } = createDatabase();
+  const service = database.getActiveTrustedVacancyServiceByHostname("ingamejob.com");
+  // ingamejob is seeded as pending; add an active service for testing
+  const testService = database.addTrustedVacancyService({
+    hostname: "ingamejob.com",
+    displayName: "InGame Job",
+    adapter: "ingamejob",
+    exampleUrl: "https://ingamejob.com/en/job/senior-game-character-artist"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  let html = `
+    <html><body class="job-view-page">
+      <div class="job-view-lead-position-box">
+        <h1 class="text-success">Senior Game Character Artist</h1>
+        <p><strong><a href="/en/company/renderer-studios">Renderer Studios</a></strong>, Posted 4 days ago</p>
+        Senior, Full time, Negotiable, Remote, Hungary
+      </div>
+      <div class="container job-view-body">
+        <div class="job-view-container">
+          <div class="job-view-single-section">
+            <h5>For which tasks (responsibilities)?</h5>
+            <p>Create high-quality 3D character art for our upcoming AAA title. Work with concept artists and designers to bring characters to life. Develop and maintain character art pipelines.</p>
+            <p>Salary: 5000 USD</p>
+          </div>
+          <div class="job-view-single-section">
+            <h5>Requirements</h5>
+            <p>5+ years experience in game character art required. Expert knowledge of ZBrush, Maya, and Substance Painter.</p>
+            <p>To apply send your CV to careers@renderer-studios.com</p>
+          </div>
+          <div class="job-view-single-section">
+            <h5>Conditions and bonuses</h5>
+            <ul><li>Remote work option</li><li>Flexible schedule</li><li>Competitive salary</li></ul>
+          </div>
+        </div>
+      </div>
+    </body></html>
+  `;
+
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response(html, { status: 200 })
+  });
+
+  const vacancy = await enricher.enrich("https://ingamejob.com/en/job/senior-game-character-artist", true);
+  assert.equal(vacancy?.parser, "ingamejob");
+  assert.equal(vacancy?.title, "Senior Game Character Artist");
+  assert.equal(vacancy?.company, "Renderer Studios");
+  assert.match(vacancy?.text ?? "", /Remote/iu);
+  assert.match(vacancy?.text ?? "", /character art/iu);
+
+  // 404 page rejection
+  html = "<html><body><main>Page not found</main></body></html>";
+  await assert.rejects(() =>
+    enricher.enrich("https://ingamejob.com/en/job/missing-page", true),
+    /does not exist/u
+  );
+
+  // Non-vacancy page (no job-view-page body class, different URL to bypass shape guard)
+  html = `
+    <html><body class="listing-page">
+      <h1>Job Search</h1>
+      <p>Browse game development job openings from leading studios worldwide.</p>
+    </body></html>
+  `;
+  await assert.rejects(() =>
+    enricher.enrich("https://ingamejob.com/en/job/expired-position", true),
+    /confident vacancy/u
+  );
+
+  // Temporary network error (503) — should throw generic error, not definitive
+  const enricher2 = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response("Service unavailable", { status: 503 })
+  });
+  await assert.rejects(() =>
+    enricher2.enrich("https://ingamejob.com/en/job/some-role", true),
+    /HTTP 503/u
+  );
+
+  database.close();
+});
+
+test("ingamejob: oversized response is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "ingamejob.com",
+    displayName: "InGame Job",
+    adapter: "ingamejob",
+    exampleUrl: "https://ingamejob.com/en/job/senior-game-character-artist"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const largeHtml = "x".repeat(config.companyCareersMaxResponseBytes + 1);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(largeHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://ingamejob.com/en/job/senior-game-character-artist", true),
+    /too large/u
+  );
+
+  database.close();
+});
+
+test("ingamejob: redirect is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "ingamejob.com",
+    displayName: "InGame Job",
+    adapter: "ingamejob",
+    exampleUrl: "https://ingamejob.com/en/job/senior-game-character-artist"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://other.com" } })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://ingamejob.com/en/job/some-role", true),
+    /HTTP 302/u
+  );
+
+  database.close();
+});
+
+

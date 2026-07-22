@@ -98,6 +98,9 @@ function knownHostDetection(hostname: string, exampleUrl: string): Omit<TrustedS
   if (hostname === "telegra.ph") {
     return { hostname, displayName: "Telegraph", adapter: "telegraph" };
   }
+  if (hostname === "ingamejob.com") {
+    return { hostname, displayName: "InGame Job", adapter: "ingamejob" };
+  }
   if (hostname === "www.aviasales.ru" && isTrustedVacancyUrlShape("aviasales_careers", exampleUrl)) {
     return { hostname, displayName: "Aviasales", adapter: "aviasales_careers" };
   }
@@ -166,6 +169,8 @@ export function isTrustedVacancyUrlShape(adapter: TrustedVacancyServiceAdapter, 
     }
     case "yandex_jobs":
       return hostname === "yandex.ru" && segments[0] === "jobs" && segments[1] === "vacancies" && segments.length >= 3;
+    case "ingamejob":
+      return hostname === "ingamejob.com" && segments.length === 3 && /^[a-z]{2}$/.test(segments[0]!) && segments[1] === "job" && segments[2]!.length >= 1;
     case "generic":
       return true;
   }

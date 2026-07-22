@@ -11,6 +11,7 @@ const TRUSTED_VACANCY_SERVICE_ADAPTER_CHECK = [
   "'cloud_careers'",
   "'tbank_careers'",
   "'yandex_jobs'",
+  "'ingamejob'",
   "'generic'"
 ].join(", ");
 
@@ -23,6 +24,7 @@ const TRUSTED_VACANCY_SERVICE_REQUIRED_ADAPTERS = [
   "'cloud_careers'",
   "'tbank_careers'",
   "'yandex_jobs'",
+  "'ingamejob'",
   "'generic'"
 ];
 
@@ -783,6 +785,21 @@ function ensureTrustedVacancyServicesTable(db: SqliteDatabase): void {
     `UPDATE trusted_vacancy_services
      SET display_name = 'Telegraph', adapter = 'telegraph', parser_mode = 'specialized'
      WHERE hostname = 'telegra.ph'`
+  ).run();
+  db.prepare(
+    `INSERT OR IGNORE INTO trusted_vacancy_services (
+       hostname, display_name, adapter, status, parser_mode, example_url,
+       added_by_user_id, approved_by_user_id, created_at, updated_at
+     ) VALUES (
+       'ingamejob.com', 'InGame Job', 'ingamejob', 'pending',
+       'specialized', 'https://ingamejob.com/en/job/senior-game-character-artist',
+       NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+     )`
+  ).run();
+  db.prepare(
+    `UPDATE trusted_vacancy_services
+     SET display_name = 'InGame Job', adapter = 'ingamejob', parser_mode = 'specialized'
+     WHERE hostname = 'ingamejob.com'`
   ).run();
 }
 
