@@ -37,7 +37,7 @@ import { handleChannelReportCommand } from "./channelReportHandler";
 import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
-import { processRelevanceFeedback } from "./relevanceFeedbackHandler";
+import { handleVacancyHideCallback, handleVacancyRelevanceCallback } from "./relevanceFeedbackHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -1743,6 +1743,36 @@ export function createBotController(
         const previousStatus = database.getUserVacancyStatus(currentUserId, vacancyId);
         const nextStatus: VacancyUserStatus = previousStatus === requestedStatus ? "inbox" : requestedStatus;
         const activeReminder = database.getActiveUserVacancyReminder(currentUserId, vacancyId);
+
+        // Hidden case: extracted handler does access check, feedback, status change, analytics, answer, UI
+        if (nextStatus === "hidden") {
+            const hideResult = await handleVacancyHideCallback(ctx, database, analytics, currentUserId, vacancyId, previousStatus, {
+                dismissOrRestoreWeekly: async (handlerCtx) => {
+                    const restoredWeekly = origin
+                        ? await showWeeklyPageForOrigin(handlerCtx, currentUserId, origin, "edit")
+                        : false;
+                    if (!restoredWeekly) {
+                        await dismissHiddenVacancyCardMessage(handlerCtx, keyboards.createHiddenVacancyReceiptKeyboard(vacancyId, origin ?? undefined));
+                    }
+                },
+                showReasonPrompt: async (handlerCtx, userId) => {
+                    await handlerCtx.reply("👎 Больше не показываю эту вакансию.\nПочему не подходит?", {
+                        reply_markup: keyboards.createHiddenReasonKeyboard(vacancyId, origin)
+                    });
+                    await analytics.capture({
+                        eventName: "vacancy_hidden_reason_prompt_shown",
+                        userId: currentUserId,
+                        properties: {
+                            ...buildUserAnalyticsProperties(currentUserId),
+                            vacancy_id: vacancyId
+                        }
+                    });
+                }
+            });
+            if (hideResult === "forbidden") return;
+            return;
+        }
+
         if (nextStatus === "inbox") {
             database.clearUserVacancyStatus(currentUserId, vacancyId);
             if (requestedStatus === "applied") {
@@ -1778,14 +1808,14 @@ export function createBotController(
                 }
             }
         }
-        if (activeReminder && (nextStatus === "applied" || nextStatus === "hidden")) {
+        if (activeReminder && nextStatus === "applied") {
             await analytics.capture({
                 eventName: "vacancy_reminder_cancelled",
                 userId: currentUserId,
                 properties: {
                     ...buildUserAnalyticsProperties(currentUserId),
                     vacancy_id: vacancyId,
-                    trigger: `status_${nextStatus}`
+                    trigger: "status_applied"
                 }
             });
         }
@@ -1807,30 +1837,6 @@ export function createBotController(
         await ctx.answerCallbackQuery({
             text: buildStatusActionText(requestedStatus, nextStatus === "inbox")
         });
-        if (nextStatus === "hidden") {
-            const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
-            if (result.kind === "recorded") {
-                await analytics.capture(result.event);
-            }
-            const restoredWeekly = origin
-                ? await showWeeklyPageForOrigin(ctx, currentUserId, origin, "edit")
-                : false;
-            if (!restoredWeekly) {
-                await dismissHiddenVacancyCardMessage(ctx, keyboards.createHiddenVacancyReceiptKeyboard(vacancyId, origin ?? undefined));
-            }
-            await ctx.reply("👎 Больше не показываю эту вакансию.\nПочему не подходит?", {
-                reply_markup: keyboards.createHiddenReasonKeyboard(vacancyId, origin)
-            });
-            await analytics.capture({
-                eventName: "vacancy_hidden_reason_prompt_shown",
-                userId: currentUserId,
-                properties: {
-                    ...buildUserAnalyticsProperties(currentUserId),
-                    vacancy_id: vacancyId
-                }
-            });
-            return;
-        }
         if (nextStatus === "applied") {
             await showApplicationFollowUpPrompt(ctx, currentUserId, vacancyId, view, origin, "edit");
             return;
@@ -1854,17 +1860,10 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "⚠️ Не удалось сохранить оценку." });
             return;
         }
-        const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-        if (result.kind === "unchanged") {
-            await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
+        const kind = await handleVacancyRelevanceCallback(ctx, database, analytics, currentUserId, vacancyId, value);
+        if (kind !== "recorded") {
             return;
         }
-        if (result.kind === "vacancy_not_found") {
-            await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
-            return;
-        }
-        await analytics.capture(result.event);
-        await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
         const vacancyRecord = buildVacancyMessageRecord(currentUserId, vacancyId);
         if (!vacancyRecord) {
             return;

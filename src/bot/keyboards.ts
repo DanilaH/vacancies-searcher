@@ -315,7 +315,7 @@ export function createVacancyKeyboardWithActions(
       keyboard
         .row()
         .text(relevanceValue === "relevant" ? "👍 Релевантна ✅" : "👍 Релевантна", appendVacancyCardOrigin(`vacancy:relevance:${vacancy.id}:relevant:${view}`, origin))
-        .text("👎 Не подходит", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
+        .text(relevanceValue === "not_relevant" ? "👎 Не подходит ✅" : "👎 Не подходит", appendVacancyCardOrigin(`vacancy:status:${vacancy.id}:hidden:${view}`, origin));
     }
     else {
       keyboard
