@@ -7,6 +7,7 @@ import * as grammy from "grammy";
 
 import { VacancyDatabase } from "../src/db/database";
 import { processRelevanceFeedback } from "../src/bot/relevanceFeedbackHandler";
+import { createVacancyKeyboardWithActions } from "../src/bot/keyboards";
 import { createTestConfig } from "./helpers";
 
 import type { FilterResult, SourceName, VacancyRelevanceValue } from "../src/types";
@@ -101,6 +102,56 @@ function makeCallbackUpdate(fromId: number, data: string) {
   };
 }
 
+// ─── Keyboard helpers (shared with botKeyboards.test.ts pattern) ──────────────
+
+type InlineButton = {
+  text: string;
+  callback_data?: string;
+};
+
+function rows(keyboard: unknown): InlineButton[][] {
+  return (keyboard as { inline_keyboard?: InlineButton[][] }).inline_keyboard ?? [];
+}
+
+function labels(keyboard: unknown): string[] {
+  return rows(keyboard).flat().map((button) => button.text);
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-unused-vars
+function callbacks(keyboard: unknown): string[] {
+  return rows(keyboard).flat().map((button) => button.callback_data).filter((v): v is string => typeof v === "string");
+}
+
+function createMatchedVacancy(overrides: Partial<import("../src/types").MatchedVacancyRecord> = {}): import("../src/types").MatchedVacancyRecord {
+  return {
+    id: 42,
+    sourceName: "telegram_web_preview",
+    sourceChannel: "job_react",
+    sourceMessageId: "42",
+    messageDate: "2026-06-16T10:00:00.000Z",
+    title: "Frontend Developer",
+    text: "Frontend Developer remote react typescript @hr",
+    normalizedText: "frontend developer remote react typescript @hr",
+    url: "https://t.me/job_react/42",
+    canonicalUrl: null,
+    fingerprint: "fingerprint-42",
+    score: 10,
+    matchSummary: "react, typescript",
+    matchedKeywords: ["react"],
+    contacts: [{ type: "telegram", value: "@hr" }],
+    sentToOwnerAt: null,
+    createdAt: "2026-06-16T10:00:00.000Z",
+    userId: "777",
+    deliveredAt: null,
+    matchedAt: "2026-06-16T10:00:00.000Z",
+    userStatus: "inbox",
+    statusUpdatedAt: null,
+    matchedProfileIds: [1],
+    matchedProfileNames: ["Основной поиск"],
+    ...overrides
+  };
+}
+
 // --- DB-level processRelevanceFeedback tests ---
 
 test("processRelevanceFeedback returns recorded for new value", () => {
@@ -165,11 +216,11 @@ test("processRelevanceFeedback detects value change", () => {
   database.close();
 });
 
-test("processRelevanceFeedback returns vacancy_not_found for missing vacancy", () => {
+test("processRelevanceFeedback returns forbidden when no user match exists", () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const result = processRelevanceFeedback(database, "u1", 99999, "relevant");
-  assert.equal(result.kind, "vacancy_not_found");
+  assert.equal(result.kind, "forbidden");
   database.close();
 });
 
@@ -304,7 +355,7 @@ test("handler: positive feedback stores value and fires analytics", async () => 
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h1", "text");
-  insertMatch(database, "u1", vacId);
+  insertMatch(database, "777", vacId);
 
   const bot = makeBot();
 
@@ -337,8 +388,8 @@ test("handler: positive feedback stores value and fires analytics", async () => 
       await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
       return;
     }
-    if (result.kind === "vacancy_not_found") {
-      await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
+    if (result.kind === "forbidden") {
+      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
       return;
     }
     database.recordAnalyticsEvent(result.event);
@@ -371,7 +422,7 @@ test("handler: repeated positive feedback returns unchanged without second event
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h2", "text");
-  insertMatch(database, "u1", vacId);
+  insertMatch(database, "777", vacId);
 
   const bot = makeBot();
 
@@ -404,8 +455,8 @@ test("handler: repeated positive feedback returns unchanged without second event
       await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
       return;
     }
-    if (result.kind === "vacancy_not_found") {
-      await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
+    if (result.kind === "forbidden") {
+      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
       return;
     }
     database.recordAnalyticsEvent(result.event);
@@ -427,7 +478,7 @@ test("handler: hide vacancy creates not_relevant feedback with analytics", async
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h3", "text");
-  insertMatch(database, "u1", vacId);
+  insertMatch(database, "777", vacId);
 
   const bot = makeBot();
   const capturedEvents: Array<{ eventName: string; properties?: Record<string, unknown> }> = [];
@@ -475,7 +526,7 @@ test("handler: second hide does not fire second analytics event", async () => {
   const { database } = createFixture();
   setupTestUsers(database);
   const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "h4", "text");
-  insertMatch(database, "u1", vacId);
+  insertMatch(database, "777", vacId);
 
   const bot = makeBot();
   const capturedEvents: Array<{ eventName: string; properties?: Record<string, unknown> }> = [];
@@ -560,8 +611,8 @@ test("handler: forged/stale callback does not create feedback", async () => {
     const value = ctx.match?.[2] as "relevant" | undefined;
     if (!currentUserId || !vacancyId || !value) return;
     const result = processRelevanceFeedback(database, currentUserId, vacancyId, value);
-    if (result.kind === "vacancy_not_found") {
-      await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
+    if (result.kind === "forbidden") {
+      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
       return;
     }
     if (result.kind === "recorded") {
@@ -614,6 +665,222 @@ test("handler: analytics event contains allowed fields only", async () => {
     assert.equal((props as Record<string, unknown>).contacts, undefined);
     assert.equal((props as Record<string, unknown>).user_name, undefined);
   }
+
+  database.close();
+});
+
+// ─── Access control: forbidden cases ─────────────────────────────────────────
+
+test("processRelevanceFeedback returns forbidden for another user's match", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "ac1", "text");
+  insertMatch(database, "u1", vacId); // match belongs to u1
+
+  const result = processRelevanceFeedback(database, "u2", vacId, "relevant");
+  assert.equal(result.kind, "forbidden");
+  assert.equal(database.getVacancyRelevanceFeedback("u2", vacId), null);
+
+  database.close();
+});
+
+test("processRelevanceFeedback returns forbidden when vacancy exists but no user match", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "ac2", "text");
+  // no insertMatch for any user
+
+  const result = processRelevanceFeedback(database, "u1", vacId, "relevant");
+  assert.equal(result.kind, "forbidden");
+  assert.equal(database.getVacancyRelevanceFeedback("u1", vacId), null);
+
+  database.close();
+});
+
+// ─── Keyboard UI restoration tests ───────────────────────────────────────────
+
+test("keyboard: shows not_relevant checkmark when value is not_relevant", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({}), true, "compact", undefined, "not_relevant");
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👎 Не подходит ✅"));
+  assert.ok(allLabels.includes("👍 Релевантна"));
+});
+
+test("keyboard: both relevance buttons unmarked when no relevance value", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({}), true, "compact");
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👍 Релевантна"));
+  assert.ok(allLabels.includes("👎 Не подходит"));
+  assert.ok(!allLabels.includes("✅"));
+});
+
+test("keyboard: relevant checkmark present and not_relevant unmarked when value is relevant", () => {
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({}), true, "compact", undefined, "relevant");
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👍 Релевантна ✅"));
+  assert.ok(allLabels.includes("👎 Не подходит"));
+});
+
+// ─── Handler answerCallbackQuery tests ───────────────────────────────────────
+
+test("handler: forbidden path answers callback with Вакансия недоступна", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb1", "text");
+  // no match — processRelevanceFeedback will return forbidden
+
+  const bot = makeBot();
+  let lastCbAnswer: string | undefined;
+  bot.api.config.use((prev, method, payload) => {
+    if (method === "answerCallbackQuery") {
+      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
+      return Promise.resolve({ ok: true, result: true }) as never;
+    }
+    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
+      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
+    }
+    return prev(method, payload);
+  });
+
+  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
+    const currentUserId = String(ctx.from?.id ?? "");
+    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
+    const value = ctx.match?.[2] as "relevant" | undefined;
+    if (!currentUserId || !vId || !value) return;
+    const result = processRelevanceFeedback(database, currentUserId, vId, value);
+    if (result.kind === "forbidden") {
+      await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+  });
+
+  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
+  assert.equal(lastCbAnswer, "Вакансия недоступна");
+  assert.equal(database.getVacancyRelevanceFeedback("777", vacId), null);
+
+  database.close();
+});
+
+test("handler: unchanged path answers callback with already marked message", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb2", "text");
+  insertMatch(database, "777", vacId);
+
+  const bot = makeBot();
+  let lastCbText: string | undefined;
+  let cbCount = 0;
+  bot.api.config.use((prev, method, payload) => {
+    if (method === "answerCallbackQuery") {
+      lastCbText = (payload as Record<string, unknown>).text as string | undefined;
+      cbCount++;
+      return Promise.resolve({ ok: true, result: true }) as never;
+    }
+    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
+      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
+    }
+    return prev(method, payload);
+  });
+
+  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
+    const currentUserId = String(ctx.from?.id ?? "");
+    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
+    const value = ctx.match?.[2] as "relevant" | undefined;
+    if (!currentUserId || !vId || !value) return;
+    const result = processRelevanceFeedback(database, currentUserId, vId, value);
+    if (result.kind === "unchanged") {
+      await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
+      return;
+    }
+    if (result.kind === "recorded") {
+      await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+  });
+
+  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
+  assert.equal(lastCbText, "👍 Отмечено как релевантное.");
+  assert.equal(cbCount, 1);
+
+  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
+  assert.equal(lastCbText, "👍 Уже отмечено как релевантное.");
+  assert.equal(cbCount, 2);
+
+  database.close();
+});
+
+test("handler: recorded path answers callback with success message", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "acb3", "text");
+  insertMatch(database, "777", vacId);
+
+  const bot = makeBot();
+  let lastCbAnswer: string | undefined;
+  bot.api.config.use((prev, method, payload) => {
+    if (method === "answerCallbackQuery") {
+      lastCbAnswer = (payload as Record<string, unknown>).text as string | undefined;
+      return Promise.resolve({ ok: true, result: true }) as never;
+    }
+    if (method === "sendMessage" || method === "editMessageReplyMarkup" || method === "editMessageText") {
+      return Promise.resolve({ ok: true, result: { message_id: 1 } }) as never;
+    }
+    return prev(method, payload);
+  });
+
+  bot.callbackQuery(/^vacancy:relevance:(\d+):(relevant)(?::(compact|full))?(?::(w[0-9a-z]+|p[0-9a-z]+\.[0-9a-z]+))?$/, async (ctx) => {
+    const currentUserId = String(ctx.from?.id ?? "");
+    const vId = Number.parseInt(ctx.match?.[1] ?? "0", 10);
+    const value = ctx.match?.[2] as "relevant" | undefined;
+    if (!currentUserId || !vId || !value) return;
+    const result = processRelevanceFeedback(database, currentUserId, vId, value);
+    if (result.kind === "unchanged") return;
+    if (result.kind === "forbidden") return;
+    await ctx.answerCallbackQuery({ text: "👍 Отмечено как релевантное." });
+  });
+
+  await bot.handleUpdate(makeCallbackUpdate(777, `vacancy:relevance:${vacId}:relevant:compact`));
+  assert.equal(lastCbAnswer, "👍 Отмечено как релевантное.");
+
+  database.close();
+});
+
+// ─── Real keyboard builder with DB-backed relevanceValue ─────────────────────
+
+test("keyboard builder uses DB feedback value for relevant marking", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "dbk1", "text");
+  insertMatch(database, "u1", vacId);
+
+  processRelevanceFeedback(database, "u1", vacId, "relevant");
+  const value = database.getVacancyRelevanceFeedback("u1", vacId);
+  assert.equal(value, "relevant");
+
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({ id: vacId }), true, "compact", undefined, value ?? undefined);
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👍 Релевантна ✅"));
+  assert.ok(allLabels.includes("👎 Не подходит"));
+
+  database.close();
+});
+
+test("keyboard builder uses DB feedback value for not_relevant marking", () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "dbk2", "text");
+  insertMatch(database, "u1", vacId);
+
+  processRelevanceFeedback(database, "u1", vacId, "not_relevant");
+  const value = database.getVacancyRelevanceFeedback("u1", vacId);
+  assert.equal(value, "not_relevant");
+
+  const keyboard = createVacancyKeyboardWithActions(createMatchedVacancy({ id: vacId }), true, "compact", undefined, value ?? undefined);
+  const allLabels = labels(keyboard);
+  assert.ok(allLabels.includes("👎 Не подходит ✅"));
+  assert.ok(allLabels.includes("👍 Релевантна"));
 
   database.close();
 });

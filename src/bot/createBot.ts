@@ -1809,6 +1809,15 @@ export function createBotController(
         });
         if (nextStatus === "hidden") {
             const result = processRelevanceFeedback(database, currentUserId, vacancyId, "not_relevant");
+            if (result.kind === "forbidden") {
+                if (previousStatus === "inbox") {
+                    database.clearUserVacancyStatus(currentUserId, vacancyId);
+                } else {
+                    database.setUserVacancyStatus(currentUserId, vacancyId, previousStatus);
+                }
+                await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
+                return;
+            }
             if (result.kind === "recorded") {
                 await analytics.capture(result.event);
             }
@@ -1859,8 +1868,8 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "👍 Уже отмечено как релевантное." });
             return;
         }
-        if (result.kind === "vacancy_not_found") {
-            await ctx.answerCallbackQuery({ text: "⚠️ Вакансия больше недоступна." });
+        if (result.kind === "forbidden") {
+            await ctx.answerCallbackQuery({ text: "Вакансия недоступна" });
             return;
         }
         await analytics.capture(result.event);

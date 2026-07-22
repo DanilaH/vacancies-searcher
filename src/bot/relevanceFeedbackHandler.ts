@@ -10,7 +10,7 @@ export interface ProcessRelevanceFeedbackEvent {
 export type ProcessResult =
   | { kind: "recorded"; event: ProcessRelevanceFeedbackEvent }
   | { kind: "unchanged" }
-  | { kind: "vacancy_not_found" };
+  | { kind: "forbidden" };
 
 export function processRelevanceFeedback(
   database: VacancyDatabase,
@@ -23,10 +23,11 @@ export function processRelevanceFeedback(
     return { kind: "unchanged" };
   }
 
-  const vacancy = database.getVacancy(vacancyId);
-  if (!vacancy) {
-    return { kind: "vacancy_not_found" };
+  if (!database.hasUserVacancyMatch(userId, vacancyId)) {
+    return { kind: "forbidden" };
   }
+
+  const vacancy = database.getVacancy(vacancyId);
 
   database.upsertVacancyRelevanceFeedback(userId, vacancyId, value);
 
@@ -38,8 +39,8 @@ export function processRelevanceFeedback(
       properties: {
         vacancy_id: vacancyId,
         value,
-        source_name: vacancy.sourceName,
-        source_channel: vacancy.sourceChannel
+        source_name: vacancy?.sourceName ?? "unknown",
+        source_channel: vacancy?.sourceChannel ?? "unknown"
       }
     }
   };
