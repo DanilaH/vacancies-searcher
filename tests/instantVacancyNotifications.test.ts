@@ -4,16 +4,39 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import BetterSqlite3 from "better-sqlite3";
+import type * as grammy from "grammy";
 
 import { createAnalyticsService } from "../src/analytics/analyticsService";
 import type { BotController } from "../src/bot/createBot";
+import { createNotificationsKeyboard } from "../src/bot/keyboards";
+import { handleInstantVacancyToggle } from "../src/bot/notificationToggleHandler";
 import { VacancyDatabase } from "../src/db/database";
 import { getSchemaTableColumns } from "../src/db/schema";
 import { VacancyFilter } from "../src/services/vacancyFilter";
 import { VacancyIngestor } from "../src/services/vacancyIngestor";
 import type { MatchedVacancyRecord } from "../src/types";
-import { createNotificationsKeyboard } from "../src/bot/keyboards";
 import { createTestConfig } from "./helpers";
+
+interface MockCtx extends grammy.Context {
+  readonly answerText: string | undefined;
+  readonly answerCount: number;
+}
+
+function makeMockContext(): MockCtx {
+  let answerCount = 0;
+  let answerText: string | undefined;
+  const ctx = {
+    callbackQuery: { id: "cb1" },
+    answerCallbackQuery: async (params: string | { text?: string } | undefined) => {
+      answerCount++;
+      answerText = typeof params === "string" ? params : params?.text;
+      return { ok: true, result: true } as never;
+    },
+    get answerText(): string | undefined { return answerText; },
+    get answerCount(): number { return answerCount; }
+  };
+  return ctx as unknown as MockCtx;
+}
 
 type InlineButton = {
   text: string;
@@ -36,6 +59,11 @@ function labels(keyboard: unknown): string[] {
   return rows(keyboard).flat().map((button) => button.text);
 }
 
+interface DeliveryRecord {
+  userId: string;
+  vacancyId: number;
+}
+
 function createFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-instant-notif-"));
   const config = createTestConfig({
@@ -48,12 +76,13 @@ function createFixture() {
   });
   const database = new VacancyDatabase(config);
   database.initialize();
-  const deliveries: number[] = [];
+  const deliveries: DeliveryRecord[] = [];
   const bot: BotController = {
     async start() {},
     async stop() {},
     async notifyVacancy(vacancy: MatchedVacancyRecord) {
-      deliveries.push(vacancy.id);
+      deliveries.push({ userId: vacancy.userId, vacancyId: vacancy.id });
+      database.markUserVacancyDelivered(vacancy.userId, vacancy.id);
       return true;
     },
     async sendVacancyReminder() { return true; },
@@ -168,6 +197,84 @@ test("settings are isolated between users", () => {
   assert.equal(userBSettings.instantVacancyNotificationsEnabled, true);
 });
 
+test("handler toggles from true to false on first press", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setInstantVacancyNotificationsEnabled(config.ownerUserId!, true);
+  const ctx = makeMockContext();
+  type AnalyticsEvent = { eventName: string; userId: string; properties: Record<string, unknown> };
+  const analytics: AnalyticsEvent[] = [];
+  const analyticsService = {
+    capture: async (event: AnalyticsEvent) => { analytics.push(event); },
+    shutdown: async () => {}
+  } as never;
+
+  const result = await handleInstantVacancyToggle(ctx as never, database, analyticsService, config.ownerUserId!);
+
+  assert.equal(result.previousValue, true);
+  assert.equal(result.newValue, false);
+  assert.equal(ctx.answerText, "🔕 Уведомления о новых вакансиях выключены.");
+  assert.equal(ctx.answerCount, 1);
+  assert.equal(analytics.length, 1);
+  assert.equal(analytics[0]!.eventName, "instant_vacancy_notifications_toggled");
+  assert.equal(analytics[0]!.properties.new_value, false);
+  assert.equal(analytics[0]!.properties.source, "user_settings");
+  const settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, false);
+
+  database.close();
+});
+
+test("handler toggles from false to true on second press", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setInstantVacancyNotificationsEnabled(config.ownerUserId!, false);
+  const ctx = makeMockContext();
+  type AnalyticsEvent = { eventName: string; userId: string; properties: Record<string, unknown> };
+  const analytics: AnalyticsEvent[] = [];
+  const analyticsService = {
+    capture: async (event: AnalyticsEvent) => { analytics.push(event); },
+    shutdown: async () => {}
+  } as never;
+
+  const result = await handleInstantVacancyToggle(ctx as never, database, analyticsService, config.ownerUserId!);
+
+  assert.equal(result.previousValue, false);
+  assert.equal(result.newValue, true);
+  assert.equal(ctx.answerText, "🔔 Уведомления о новых вакансиях включены.");
+  assert.equal(ctx.answerCount, 1);
+  assert.equal(analytics.length, 1);
+  assert.equal(analytics[0]!.eventName, "instant_vacancy_notifications_toggled");
+  assert.equal(analytics[0]!.properties.new_value, true);
+  const settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, true);
+
+  database.close();
+});
+
+test("handler does not change digest or empty-cycle settings", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setNotifyOnEmptyCycle(config.ownerUserId!, true);
+  database.setDailyDigestEnabled(config.ownerUserId!, true);
+  const ctx = makeMockContext();
+  const analyticsService = {
+    capture: async () => {},
+    shutdown: async () => {}
+  } as never;
+
+  await handleInstantVacancyToggle(ctx as never, database, analyticsService, config.ownerUserId!);
+
+  const settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.notifyOnEmptyCycle, true);
+  assert.equal(settings.dailyDigestEnabled, true);
+
+  database.close();
+});
+
 test("notification keyboard includes instant vacancy toggle", () => {
   const keyboard = createNotificationsKeyboard(false, false, true);
   const data = callbacks(keyboard);
@@ -187,7 +294,7 @@ test("notification keyboard shows disabled state", () => {
   assert.ok(lbls.includes("🔕 Новые вакансии сразу: выключены"));
 });
 
-test("enabled setting sends instant notification", async () => {
+test("enabled setting sends instant notification and marks delivered", async () => {
   const fixture = createFixture();
   fixture.database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
   fixture.database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
@@ -204,12 +311,18 @@ test("enabled setting sends instant notification", async () => {
 
   assert.deepEqual(result, ["777"], "User matched");
   assert.equal(fixture.deliveries.length, 1, "Notification sent");
+  assert.equal(fixture.deliveries[0]!.userId, "777", "Notification sent to correct user");
+
+  const allV = fixture.database.listVacanciesSince(7);
+  const match = fixture.database.getUserMatchedVacancy("777", allV[0]!.id);
+  assert.ok(match !== null, "Match record exists");
+  assert.notEqual(match!.deliveredAt, null, "Match is marked as delivered");
 
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
 
-test("disabled setting does not send instant notification but creates match", async () => {
+test("disabled setting does not send instant notification, keeps deliveredAt null", async () => {
   const fixture = createFixture();
   fixture.database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
   fixture.database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
@@ -229,7 +342,9 @@ test("disabled setting does not send instant notification but creates match", as
 
   const allV = fixture.database.listVacanciesSince(7);
   assert.equal(allV.length, 1, "Vacancy was created");
-  assert.ok(fixture.database.getUserMatchedVacancy("777", allV[0]!.id), "Match record exists");
+  const match = fixture.database.getUserMatchedVacancy("777", allV[0]!.id);
+  assert.ok(match !== null, "Match record exists");
+  assert.equal(match!.deliveredAt, null, "Match is not marked as delivered");
 
   await fixture.analytics.shutdown();
   fixture.database.close();
@@ -254,7 +369,17 @@ test("disabled setting does not affect other users", async () => {
   });
 
   assert.deepEqual(result.sort(), ["userA", "userB"], "Both users matched");
-  assert.equal(fixture.deliveries.length, 1, "Only user B got notification");
+  assert.equal(fixture.deliveries.length, 1, "Only one notification sent");
+  assert.equal(fixture.deliveries[0]!.userId, "userB", "Notification sent to user B (enabled), not user A (disabled)");
+
+  const allV = fixture.database.listVacanciesSince(7);
+  assert.equal(allV.length, 1, "One vacancy created");
+  const matchA = fixture.database.getUserMatchedVacancy("userA", allV[0]!.id);
+  const matchB = fixture.database.getUserMatchedVacancy("userB", allV[0]!.id);
+  assert.ok(matchA !== null, "User A has match");
+  assert.ok(matchB !== null, "User B has match");
+  assert.equal(matchA!.deliveredAt, null, "User A match not marked delivered");
+  assert.notEqual(matchB!.deliveredAt, null, "User B match marked as delivered");
 
   await fixture.analytics.shutdown();
   fixture.database.close();

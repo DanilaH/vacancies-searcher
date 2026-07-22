@@ -38,6 +38,7 @@ import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
 import { handleVacancyHideCallback, handleVacancyRelevanceCallback } from "./relevanceFeedbackHandler";
+import { handleInstantVacancyToggle } from "./notificationToggleHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -2741,23 +2742,7 @@ export function createBotController(
             await ctx.answerCallbackQuery({ text: "⚠️ Не удалось определить пользователя." });
             return;
         }
-        const currentSettings = database.getUserSettings(currentUserId);
-        const newValue = !currentSettings.instantVacancyNotificationsEnabled;
-        database.setInstantVacancyNotificationsEnabled(currentUserId, newValue);
-        await ctx.answerCallbackQuery({
-            text: newValue
-                ? "🔔 Уведомления о новых вакансиях включены."
-                : "🔕 Уведомления о новых вакансиях выключены."
-        });
-        await analytics.capture({
-            eventName: "instant_vacancy_notifications_toggled",
-            userId: currentUserId,
-            properties: {
-                ...buildUserAnalyticsProperties(currentUserId),
-                new_value: newValue,
-                source: "user_settings"
-            }
-        });
+        await handleInstantVacancyToggle(ctx, database, analytics, currentUserId);
         await showNotificationsPanel(ctx, "edit");
     });
     bot.callbackQuery("notifications:toggle_empty_cycle_notice", async (ctx) => {
