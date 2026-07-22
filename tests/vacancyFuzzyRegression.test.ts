@@ -126,9 +126,24 @@ test("fuzzy chain: A-B-C all in one group, root shows all sources", async () => 
   assert.equal(allV.length, 3, "All three vacancies should be in DB");
 
   const root = allV.find((v) => v.sourceMessageId === "ca")!;
-  const posts = fixture.database.listVacancyDuplicatePosts(root.id, 10);
-  const seen = posts.items.map((p) => p.sourceMessageId).sort();
-  assert.deepEqual(seen, ["cb", "cc"], "Root should show B and C as duplicate sources");
+  const mid = allV.find((v) => v.sourceMessageId === "cb")!;
+  const leaf = allV.find((v) => v.sourceMessageId === "cc")!;
+
+  const rootPosts = fixture.database.listVacancyDuplicatePosts(root.id, 10);
+  const rootSeen = rootPosts.items.map((p) => p.sourceMessageId).sort();
+  assert.deepEqual(rootSeen, ["cb", "cc"], "Root A shows B and C");
+
+  const midPosts = fixture.database.listVacancyDuplicatePosts(mid.id, 10);
+  const midSeen = midPosts.items.map((p) => p.sourceMessageId).sort();
+  assert.deepEqual(midSeen, ["ca", "cc"], "Leaf B shows A and C (not just root A)");
+
+  const leafPosts = fixture.database.listVacancyDuplicatePosts(leaf.id, 10);
+  const leafSeen = leafPosts.items.map((p) => p.sourceMessageId).sort();
+  assert.deepEqual(leafSeen, ["ca", "cb"], "Leaf C shows A and B (not just root A)");
+
+  assert.ok(rootPosts.items.every((p) => p.sourceMessageId !== "ca"), "Root does not include self");
+  assert.ok(midPosts.items.every((p) => p.sourceMessageId !== "cb"), "Mid does not include self");
+  assert.ok(leafPosts.items.every((p) => p.sourceMessageId !== "cc"), "Leaf does not include self");
 
   await fixture.analytics.shutdown();
   fixture.database.close();
@@ -391,6 +406,55 @@ test("card shows all fuzzy sources via listVacancyDuplicatePosts", async () => {
   const posts = fixture.database.listVacancyDuplicatePosts(root.id, 10);
   const seen = posts.items.map((p) => p.sourceMessageId).sort();
   assert.deepEqual(seen, ["srcB", "srcC"], "Root card shows all fuzzy sources");
+
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("canonical dedup fires before fuzzy, preserves data, lists all sources", async () => {
+  const fixture = createFixture();
+  fixture.database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
+  fixture.database.setUserSearchProfileKeywords("777", "required_primary", ["python"]);
+
+  const first = await fixture.ingestor.handle({
+    source: "telegram_web_preview" as const,
+    channel: "canonA",
+    messageId: "ca1",
+    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    text: "Python Developer\nRemote\nSalary: 5000 USD",
+    url: "https://t.me/canonA/ca1",
+    canonicalUrl: "https://example.com/vacancy/123"
+  });
+
+  assert.deepEqual(first, ["777"], "First canonical post matches user");
+  assert.equal(fixture.deliveries.length, 1, "One notification for first post");
+
+  const second = await fixture.ingestor.handle({
+    source: "telegram_web_preview" as const,
+    channel: "canonB",
+    messageId: "ca2",
+    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nDifferent text, same canonical URL",
+    url: "https://t.me/canonB/ca2",
+    canonicalUrl: "https://example.com/vacancy/123"
+  });
+
+  assert.deepEqual(second, [], "Canonical duplicate should not trigger new matches");
+  assert.equal(fixture.deliveries.length, 1, "No additional notification");
+
+  const allV = fixture.database.listVacanciesSince(7);
+  assert.equal(allV.length, 1, "Canonical dedup should not create a new vacancy record");
+
+  const original = allV[0]!;
+  assert.equal(original.sourceMessageId, "ca1", "Original vacancy is from first post");
+
+  const groupIds = fixture.database.getFuzzyGroupVacancyIds(original.id);
+  assert.deepEqual(groupIds, [original.id], "No fuzzy links should exist for canonical dedup");
+
+  const posts = fixture.database.listVacancyDuplicatePosts(original.id, 10);
+  const seen = posts.items.map((p) => p.sourceMessageId).sort();
+  assert.ok(seen.includes("ca2"), "Second raw source appears in duplicate listing");
+  assert.ok(seen.every((s) => s !== "ca1"), "Original source is not in its own listing");
 
   await fixture.analytics.shutdown();
   fixture.database.close();

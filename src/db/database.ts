@@ -2828,15 +2828,7 @@ export class VacancyDatabase {
       vacancy.sourceMessageId
     ];
 
-    const fuzzyLinked = db
-      .prepare(`
-        SELECT duplicate_vacancy_id AS linked_id FROM vacancy_fuzzy_duplicates WHERE vacancy_id = ?
-        UNION
-        SELECT vacancy_id AS linked_id FROM vacancy_fuzzy_duplicates WHERE duplicate_vacancy_id = ?
-      `)
-      .all(vacancyId, vacancyId) as Array<{ linked_id: number }>;
-
-    const fuzzyIds: number[] = fuzzyLinked.map((r) => r.linked_id);
+    const fuzzyIds = this.getFuzzyGroupVacancyIds(vacancyId).filter((id) => id !== vacancyId);
 
     const baseSql = `
       SELECT source_name, source_channel, source_message_id, message_date, url
@@ -2894,7 +2886,7 @@ export class VacancyDatabase {
 
   getFuzzyGroupVacancyIds(vacancyId: number): number[] {
     const db = this.getDb();
-    const seen = new Set<number>();
+    const seen = new Set<number>([vacancyId]);
     let queue = [vacancyId];
     while (queue.length > 0) {
       const ids = db
