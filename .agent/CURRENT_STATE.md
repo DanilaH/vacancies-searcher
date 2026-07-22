@@ -127,7 +127,7 @@ Known from recent work:
 - Full suite passed with 323 tests after onboarding/start copy refresh (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after onboarding/start copy refresh.
 - Focused weekly catch-up/window check passed: `node --import tsx --test tests/telegramWebPreviewSource.test.ts tests/botKeyboards.test.ts tests/vacancyCardOrigin.test.ts` (41 tests).
-- Full suite passed with 326 tests after weekly catch-up and 7/14/30-day window support (`npm test`).
+- Full suite passed with 631 tests after fuzzy dedup report PR #21 review fixes (`npm test`).
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after weekly catch-up and window support.
 - Full suite passed with 295 tests after compact weekly screen and user weekly page-size settings work.
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after the same work.
@@ -138,6 +138,7 @@ Known from recent work:
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
 - Broad-domain adapters/path guards exist for safe shapes on `www.aviasales.ru`, `cloud.ru`, `www.tbank.ru`, and `yandex.ru`, but they are not seeded as active built-ins.
 
+- Owner-only `/fuzzyreport` command: aggregates fuzzy duplicate stats for the last 30 days via `getFuzzyDedupStats(sinceIso)` in database layer. Reports total links, unique groups (connected components via union-find, iteratively expanded to full transitivity), average/min/max score, score buckets (zero-filled), top source/channel pairs (UNION ALL both sides), group size distribution, and last match date. `buildFuzzyDedupReport` formats the output. `handleFuzzyDedupReportCommand` enforces owner-only access. 24 tests cover aggregation, groups, buckets, time filtering, source ranking, deep transitive chains, independent groups, access control, and privacy (no vacancy text, contacts, or user IDs).
 - Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). Company-only matches with titleSim < 0.70 are rejected. 18 unit tests, 2 ingestion integration tests, and 11 regression tests pass.
 - Ingestor (`vacancyIngestor.ts`): `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null` with `groupVacancyIds`. On fuzzy hit, the new vacancy is linked to the root of the group. Matching runs normally but skips users who already matched any vacancy in the group. This prevents both matching loss (users who didn't match the first variant can still match the second) and duplicate notifications.
 - Root linking: new fuzzy duplicates are always linked to the root (min ID) of the candidate's fuzzy group via `getFuzzyGroupRootId`. Transitive group queries via `getFuzzyGroupVacancyIds` (BFS closure). `listVacancyDuplicatePosts` UNIONs fuzzy sources → root card shows all group members.
@@ -156,16 +157,10 @@ npx tsc -p tsconfig.json --pretty false
 ## Git / Workspace Notes
 
 - Git metadata is available.
-- Current branch: `feature/fuzzy-vacancy-dedup` (PR #19).
-- All 5 review blocks from the latest PR review are resolved:
-  1. Per-user dedup (matching not skipped entirely)
-  2. Root linking (fuzzy chain doesn't fragment groups)
-  3. 11 regression tests covering per-user dedup, transitive display, canonical/fingerprint coexistence, and state integrity
-  4. Candidate pre-filtering by title tokens + message_date index
-  5. Verification: 592/592 tests pass, typecheck + build clean
-- PR #17 (`feat/audit-quality-metrics` → `master`) merged.
-- PR #18 (`fix/relevance-feedback-integrity` → `master`) merged.
-- PR #19 passed final review and CI and is ready to merge.
+- Current branch: `feat/fuzzy-dedup-report` (PR #21).
+- PR #19 (`feature/fuzzy-vacancy-dedup` → `master`) merged.
+- PR #20 (`feat/instant-vacancy-notifications-toggle` → `master`) merged.
+- PR #21 (`feat/fuzzy-dedup-report`) is open — owner-only `/fuzzyreport` command.
 
 ## Known Problems
 

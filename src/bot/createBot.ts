@@ -34,6 +34,7 @@ import {
 } from "../services/hiddenVacancyReasons";
 import { ActionCooldown } from "../services/actionCooldown";
 import { handleChannelReportCommand } from "./channelReportHandler";
+import { handleFuzzyDedupReportCommand } from "./fuzzyDedupReportHandler";
 import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
@@ -126,7 +127,8 @@ const OWNER_BOT_COMMANDS = [
     { command: "channelreport", description: "Производительность источников" },
     { command: "retention", description: "Ретенция пользователей" },
     { command: "qualityreport", description: "Качество матчинга за 30 дней" },
-    { command: "qualityaudit", description: "Аудит отклонённых вакансий" }
+    { command: "qualityaudit", description: "Аудит отклонённых вакансий" },
+    { command: "fuzzyreport", description: "Fuzzy-дубликаты за 30 дней" }
 ];
 
 export async function dismissHiddenVacancyCardMessage(
@@ -1325,6 +1327,9 @@ export function createBotController(
     });
     bot.command("qualityaudit", async (ctx) => {
         await handleQualityAuditCommand(ctx, database, config);
+    });
+    bot.command("fuzzyreport", async (ctx) => {
+        await handleFuzzyDedupReportCommand(ctx, database);
     });
     bot.callbackQuery(/^qualityaudit:verdict:(\d+):(missed_relevant|correct_rejection)$/, async (ctx) => {
         await handleAuditVerdictCallback(ctx, database, config);

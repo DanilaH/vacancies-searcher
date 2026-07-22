@@ -891,3 +891,15 @@ export interface PollCycleSummary {
   newVacanciesCount: number;
   usersWithNewVacancies: string[];
 }
+
+export interface FuzzyDedupStats {
+  totalLinks: number;
+  totalGroups: number;
+  averageScore: number | null;
+  minScore: number | null;
+  maxScore: number | null;
+  scoreBuckets: Array<{ label: string; count: number }>;
+  topSourceChannelPairs: Array<{ sourceName: string; sourceChannel: string; linkCount: number }>;
+  groupSizeDistribution: Array<{ sizeLabel: string; count: number }>;
+  lastMatchDate: string | null;
+}
