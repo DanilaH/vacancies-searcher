@@ -18,6 +18,7 @@ import { VacancyFilter } from "./services/vacancyFilter";
 import { VacancyReminderScheduler } from "./services/vacancyReminderScheduler";
 import { ApplicationFollowUpScheduler } from "./services/applicationFollowUpScheduler";
 import { DailyDigestScheduler } from "./services/dailyDigestScheduler";
+import { PendingNotificationScheduler } from "./services/pendingNotificationScheduler";
 import { WeeklyOwnerReportScheduler } from "./services/weeklyOwnerReportScheduler";
 import { createVacancySources } from "./sources";
 
@@ -80,6 +81,14 @@ async function main(): Promise<void> {
   const applicationFollowUpScheduler = new ApplicationFollowUpScheduler(
     database,
     (followUp) => bot.sendApplicationFollowUp ? bot.sendApplicationFollowUp(followUp) : Promise.resolve(false)
+  );
+  const pendingNotificationScheduler = new PendingNotificationScheduler(
+    database,
+    async (userId, vacancyId) => {
+      const match = database.getUserVacancyMatch(userId, vacancyId);
+      if (!match) return false;
+      return bot.notifyVacancy(match);
+    }
   );
   const ownerReportScheduler = new WeeklyOwnerReportScheduler(
     database,
@@ -211,6 +220,7 @@ async function main(): Promise<void> {
 
     heartbeat.stop();
     await automaticBackup.stop();
+    await pendingNotificationScheduler.stop();
     await reminderScheduler.stop();
     await applicationFollowUpScheduler.stop();
     await dailyDigestScheduler.stop();
@@ -238,6 +248,7 @@ async function main(): Promise<void> {
   try {
     await bot.start();
     await automaticBackup.start();
+    await pendingNotificationScheduler.start();
     await reminderScheduler.start();
     await applicationFollowUpScheduler.start();
     await dailyDigestScheduler.start();

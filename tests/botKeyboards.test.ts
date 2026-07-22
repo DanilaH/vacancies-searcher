@@ -507,11 +507,13 @@ test("notification settings keyboard names concrete notification types", () => {
 
   assert.deepEqual(data, [
     "notifications:toggle_instant_vacancy",
+    "notifications:toggle_quiet_hours",
     "notifications:toggle_empty_cycle_notice",
     "notifications:toggle_daily_digest",
     "menu:settings"
   ]);
   assert.ok(labels.includes("🔔 Новые вакансии сразу: включены"));
+  assert.ok(labels.includes("🌙 Ночная пауза 23:00–08:00: выключена"));
   assert.ok(labels.includes("🔔 Сообщать, если новых вакансий нет"));
   assert.ok(labels.includes("🌅 Выключить утренний дайджест"));
 });

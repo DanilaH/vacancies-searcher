@@ -3,6 +3,7 @@ import { BotController } from "../bot/createBot";
 import { AppConfig } from "../config";
 import { VacancyDatabase } from "../db/database";
 import { logger } from "../logger";
+import { isInQuietHours, computeNextQuietHoursEnd } from "./quietHoursUtils";
 import { AnalyticsEventName, RawVacancyItem, VacancyRecord } from "../types";
 import { extractSupportedCompanyCareerUrl } from "./companyCareerUrls";
 import { extractContacts } from "./contactExtractor";
@@ -35,6 +36,7 @@ type FuzzyDuplicateGroup = {
 
 export class VacancyIngestor {
   private readonly externalEnricher: ExternalVacancyEnricher;
+  private readonly now: () => Date;
 
   constructor(
     private readonly config: AppConfig,
@@ -42,9 +44,11 @@ export class VacancyIngestor {
     private readonly database: VacancyDatabase,
     private readonly bot: BotController,
     private readonly analytics: AnalyticsService,
-    externalEnricher?: ExternalVacancyEnricher
+    externalEnricher?: ExternalVacancyEnricher,
+    now?: () => Date
   ) {
     this.externalEnricher = externalEnricher ?? new ExternalVacancyEnricher(config, database);
+    this.now = now ?? (() => new Date());
   }
 
   async handle(item: RawVacancyItem): Promise<string[]> {
@@ -289,18 +293,30 @@ export class VacancyIngestor {
 
       matchedUserIds.push(user.userId);
       const userSettings = this.database.getUserSettings(user.userId);
-      if (userSettings.instantVacancyNotificationsEnabled) {
-        const notificationSent = await this.bot.notifyVacancy(matchedVacancy);
-        if (!notificationSent) {
-          logger.info(
-            { userId: user.userId, vacancyId: matchedVacancy.id },
-            "Vacancy matched a user, but notification was not delivered."
-          );
-        }
-      } else {
+      if (!userSettings.instantVacancyNotificationsEnabled) {
         logger.debug(
           { userId: user.userId, vacancyId: matchedVacancy.id },
           "Instant notifications disabled; match saved but not sent."
+        );
+        continue;
+      }
+
+      const now = this.now();
+      if (userSettings.notificationQuietHoursEnabled && isInQuietHours(now, this.config.timeZone)) {
+        const scheduledAt = computeNextQuietHoursEnd(now, this.config.timeZone);
+        this.database.enqueuePendingNotification(user.userId, matchedVacancy.id, scheduledAt);
+        logger.info(
+          { userId: user.userId, vacancyId: matchedVacancy.id, scheduledAt },
+          "Quiet hours active; notification enqueued for later delivery."
+        );
+        continue;
+      }
+
+      const notificationSent = await this.bot.notifyVacancy(matchedVacancy);
+      if (!notificationSent) {
+        logger.info(
+          { userId: user.userId, vacancyId: matchedVacancy.id },
+          "Vacancy matched a user, but notification was not delivered."
         );
       }
     }

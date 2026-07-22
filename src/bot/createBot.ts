@@ -40,6 +40,7 @@ import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
 import { handleVacancyHideCallback, handleVacancyRelevanceCallback } from "./relevanceFeedbackHandler";
 import { handleInstantVacancyToggleCallback } from "./notificationToggleHandler";
+import { handleNotificationQuietHoursToggleCallback } from "./notificationQuietHoursHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -2743,6 +2744,9 @@ export function createBotController(
     });
     bot.callbackQuery("notifications:toggle_instant_vacancy", async (ctx) => {
         await handleInstantVacancyToggleCallback(ctx, database, analytics, showNotificationsPanel);
+    });
+    bot.callbackQuery("notifications:toggle_quiet_hours", async (ctx) => {
+        await handleNotificationQuietHoursToggleCallback(ctx, database, analytics, showNotificationsPanel);
     });
     bot.callbackQuery("notifications:toggle_empty_cycle_notice", async (ctx) => {
         const currentUserId = getCurrentUserId(ctx);

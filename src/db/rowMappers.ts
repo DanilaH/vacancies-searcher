@@ -66,6 +66,7 @@ export type UserSettingsRow = {
   daily_digest_enabled: number;
   daily_digest_time_minutes: number | null;
   instant_vacancy_notifications_enabled: number;
+  notification_quiet_hours_enabled: number;
   weekly_page_size: number | null;
   vacancy_language_mode: VacancyLanguageMode;
   onboarding_completed: number;
@@ -730,6 +731,7 @@ export function mapUserSettings(row: UserSettingsRow): UserSettings {
     dailyDigestEnabled: Boolean(row.daily_digest_enabled),
     dailyDigestTimeMinutes: row.daily_digest_time_minutes,
     instantVacancyNotificationsEnabled: Boolean(row.instant_vacancy_notifications_enabled),
+    notificationQuietHoursEnabled: Boolean(row.notification_quiet_hours_enabled),
     weeklyPageSize: row.weekly_page_size,
     vacancyLanguageMode: row.vacancy_language_mode,
     onboardingCompleted: Boolean(row.onboarding_completed),

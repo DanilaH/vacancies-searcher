@@ -1,26 +1,35 @@
 # Next Task
 
-PR #21 (`feat/fuzzy-dedup-report`) is open — owner-only `/fuzzyreport` command showing fuzzy duplicate stats for the last 30 days.
+PR #23 (`feat/notification-quiet-hours`) is under review — night quiet hours for instant notifications.
 
-## Report content
+## Feature summary
 
-- Total fuzzy links created
-- Unique fuzzy groups (connected components via union-find)
-- Average/min/max score
-- Score buckets: `0.35–0.49`, `0.50–0.69`, `0.70–0.84`, `0.85–1.00`
-- Top 10 source/channel pairs by link count
-- Group size distribution: 2, 3, 4+
-- Last match date
-- Zero-state when no data
+- User can enable `🌙 Ночная пауза 23:00–08:00` in notification settings
+- When active + instant notifications enabled + current local time in 23:00–08:00 (config timezone):
+  - match is created with `deliveredAt = null`
+  - notification enqueued to `pending_notification_queue` with `scheduled_at = 08:00 local`
+- `PendingNotificationScheduler` runs every 60s, delivers due items at/after 08:00
+- Queue survives process restart (SQLite)
+- Dedup: `UNIQUE(user_id, vacancy_id)` prevents double enqueue + `status='pending'` filter
+- Hidden/applied status cancels pending delivery; saved does not
+- Retry with exponential backoff (5min–6h), `MAX_DELIVERY_ATTEMPTS=10` (total), dead-letter on exhaustion; exceptions in `deliver()` use same backoff path
+- `VacancyIngestor` accepts `now: () => Date` for controlled time testing
+- Extracted handler `notificationQuietHoursHandler.ts` with callback test coverage
 
 ## Key files
 
-- `src/db/database.ts` — `getFuzzyDedupStats(sinceIso)` with SQL aggregation + union-find for groups
-- `src/types.ts` — `FuzzyDedupStats` interface
-- `src/services/fuzzyDedupReport.ts` — `buildFuzzyDedupReport(database, days?, now?)`
-- `src/bot/fuzzyDedupReportHandler.ts` — `handleFuzzyDedupReportCommand(ctx, database)`
-- `src/bot/createBot.ts` — command registered in `OWNER_BOT_COMMANDS` + handler
-- `tests/fuzzyDedupReport.test.ts` — 24 tests covering aggregation, groups, buckets, filtering, deep transitive chains, independent groups, access, and privacy
+- `src/db/schema.ts` — `pending_notification_queue` table + `status` column migration
+- `src/db/database.ts` — all queue methods + `markPendingNotificationDeadLetter`
+- `src/db/rowMappers.ts` — `notification_quiet_hours_enabled` field
+- `src/types.ts` — `notificationQuietHoursEnabled`, `PendingNotificationRecord` (with `status`)
+- `src/services/quietHoursUtils.ts` — `isInQuietHours`, `computeNextQuietHoursEnd`
+- `src/services/pendingNotificationScheduler.ts` — scheduler + `MAX_DELIVERY_ATTEMPTS` + dead-letter + exception→backoff
+- `src/services/vacancyIngestor.ts` — quiet hours gating with `now` injection
+- `src/bot/notificationQuietHoursHandler.ts` — extracted callback handler
+- `src/bot/createBot.ts` — `notifications:toggle_quiet_hours` callback
+- `src/bot/keyboards.ts` — toggle button
+- `src/bot/formatters.ts` — status line
+- `tests/pendingNotificationQueue.test.ts` — 62 tests
 
 ## Verification
 
