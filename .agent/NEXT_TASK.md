@@ -1,23 +1,36 @@
 # Next Task
 
-No active task file.
-
-Current branch: `feat/quality-audit-review` (PR #16)
+Current branch: `feature/fuzzy-vacancy-dedup` (PR #19)
 
 ## What's Done
 
-- PR #15 (audit infrastructure) merged to master
-- DB methods: `getOldestUnreviewedAuditWithVacancy`, `setAuditVerdict` (atomic)
-- `/qualityaudit` command handler (owner-only, shows count + oldest unreviewed card)
-- Verdict callback handler with inline keyboards (✅ Подходит мне / ❌ Не подходит)
-- Atomic update only when `reviewed_at IS NULL`; double-click idempotent
-- After verdict: disables buttons, shows next record or completion message
-- Registered in `createBot.ts`, added to `OWNER_BOT_COMMANDS`
-- 18 tests covering DB methods, access control, verdict values, atomicity, next-record flow, queue-end, double-click, callback security
-- All 521 tests pass, type check clean, build clean
-- PR #16 created into master
+### Fuzzy Vacancy Dedup (PR #19)
+- `src/services/vacancyFuzzyMatcher.ts` — core service: Dice coefficient, feature extraction (company, seniority, salary, location, remote), scoring with confirmatory-signal gate
+- Scoring rewritten: requires ≥1 strong confirmatory signal; unknown attributes no longer award partial score; company-only matches with low title similarity (<0.70) are rejected
+- Ingestor restructured: `findAndRecordFuzzyDuplicate` runs before `matchVacancyForEligibleUsers`, returns `number | null`, skips match/notify on hit
+- `src/db/database.ts`: `listFuzzyMatchCandidates` (indexed LIMIT query), `recordVacancyFuzzyDuplicate` (ordered INSERT OR IGNORE), `listVacancyDuplicatePosts` updated to UNION fuzzy sources
+- `src/db/schema.ts`: `vacancy_fuzzy_duplicates` table
+- `src/types.ts`: `AnalyticsEventName` includes `vacancy_fuzzy_duplicate_found`
+- 14 unit tests for fuzzy matcher (4 shouldConsiderFuzzyMatch + 10 computeFuzzyMatch) — all pass
+- 2 integration tests (full pipeline via VacancyIngestor with real temp DB) — all pass
+- 566/566 full suite pass, typecheck clean, build clean
+
+### All 4 Review Blocks Addressed
+1. ~~Fuzzy check ran too late~~ — **fixed**: runs before matching
+2. ~~Scoring merged by common profession without confirmatory signals~~ — **fixed**: requires ≥1 confirmatory signal, unknown attribs no longer score, company-only + low titleSim rejected
+3. Missing integration tests — **fixed**: 2 integration tests added
+4. ~~Candidate query loaded all vacancies~~ — **fixed**: `listFuzzyMatchCandidates` uses LIMIT
 
 ## Next Possible Steps
 
-1. Calculate false negative rate from reviewed audit records
-2. Any follow-up actions based on audit results (e.g., threshold adjustments)
+1. Update PR #19 description with final test counts and verification results; do not merge yet
+2. Request code review from PR reviewers
+3. After merge: update AGENTS.md, CURRENT_STATE.md with final fuzzy dedup feature
+
+## Verification
+
+```powershell
+npm test
+npm run build
+npx tsc -p tsconfig.json --pretty false
+```

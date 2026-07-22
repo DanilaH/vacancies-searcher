@@ -55,6 +55,12 @@ describe("shouldConsiderFuzzyMatch", () => {
     const b = makeVacancy({ id: 2, title: SAMPLE_SIMILAR, messageDate: MONTH_LATER });
     assert.equal(shouldConsiderFuzzyMatch(a, b), false);
   });
+
+  it("returns false when title consists only of excluded words", () => {
+    const a = makeVacancy({ id: 1, title: "Вакансия" });
+    const b = makeVacancy({ id: 2, title: "Вакансия", messageDate: SAME_DAY });
+    assert.equal(shouldConsiderFuzzyMatch(a, b), false);
+  });
 });
 
 describe("computeFuzzyMatch", () => {
@@ -221,5 +227,71 @@ describe("computeFuzzyMatch", () => {
     assert.ok(result.score >= FUZZY_MATCH_THRESHOLD);
   });
 
+  it("rejects generic title only with no confirmatory signals", () => {
+    const a = makeVacancy({
+      id: 1,
+      title: "Python Developer",
+      text: "Python Developer"
+    });
+    const b = makeVacancy({
+      id: 2,
+      title: "Python Developer",
+      text: "Python Developer",
+      messageDate: SAME_DAY
+    });
+    const result = computeFuzzyMatch(a, b);
+    assert.equal(result.isMatch, false, `Expected no match for title-only: score ${result.score}`);
+    assert.ok(result.reasons.some((r) => r.includes("Title match") || r.includes("signal")));
+  });
 
+  it("rejects different professions at same company", () => {
+    const a = makeVacancy({
+      id: 1,
+      title: "Java Developer в Яндекс",
+      text: "Java Developer в Яндекс",
+      messageDate: SAME_DAY
+    });
+    const b = makeVacancy({
+      id: 2,
+      title: "Python Developer в Яндекс",
+      text: "Python Developer в Яндекс",
+      messageDate: SAME_DAY
+    });
+    const result = computeFuzzyMatch(a, b);
+    assert.equal(result.isMatch, false, `Should reject different roles at same company: score ${result.score}`);
+  });
+
+  it("rejects same-company vacancies with conflicting salary", () => {
+    const a = makeVacancy({
+      id: 1,
+      title: "Java Developer в Яндекс",
+      text: "Java Developer в Яндекс. Salary: 5000-7000 USD",
+      messageDate: SAME_DAY
+    });
+    const b = makeVacancy({
+      id: 2,
+      title: "Python Developer в Яндекс",
+      text: "Python Developer в Яндекс. Salary: 1000-2000 USD",
+      messageDate: SAME_DAY
+    });
+    const result = computeFuzzyMatch(a, b);
+    assert.equal(result.isMatch, false, `Should reject conflicting salary at same company: score ${result.score}`);
+  });
+
+  it("rejects same-company vacancies with different seniority", () => {
+    const a = makeVacancy({
+      id: 1,
+      title: "Junior Python Developer в Яндекс",
+      text: "Junior Python Developer в Яндекс",
+      messageDate: SAME_DAY
+    });
+    const b = makeVacancy({
+      id: 2,
+      title: "Senior Python Developer в Яндекс",
+      text: "Senior Python Developer в Яндекс",
+      messageDate: SAME_DAY
+    });
+    const result = computeFuzzyMatch(a, b);
+    assert.equal(result.isMatch, false, `Should reject different seniority at same company`);
+  });
 });

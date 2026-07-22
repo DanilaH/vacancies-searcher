@@ -2641,6 +2641,24 @@ export class VacancyDatabase {
     return rows.map((row) => mapVacancy(row));
   }
 
+  listFuzzyMatchCandidates(vacancyId: number, days: number, limit = 200): VacancyRecord[] {
+    const since = recentThresholdIso(days);
+    const rows = this.getDb()
+      .prepare(
+        `
+          SELECT *
+          FROM vacancies
+          WHERE message_date >= ?
+            AND id != ?
+          ORDER BY message_date DESC, id DESC
+          LIMIT ?
+        `
+      )
+      .all(since, vacancyId, limit) as VacancyRow[];
+
+    return rows.map((row) => mapVacancy(row));
+  }
+
   listChannelPerformance(sinceIso: string, untilIso: string, limit = 10): ChannelPerformanceRow[] {
     const db = this.getDb();
     const safeLimit = Math.max(1, limit);

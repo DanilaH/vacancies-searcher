@@ -235,69 +235,25 @@ export function computeFuzzyMatch(a: VacancyRecord, b: VacancyRecord): FuzzyMatc
   if (fa.company && fb.company && fa.company !== fb.company) {
     return { score: 0, isMatch: false, reasons: ["Different companies"] };
   }
-  if (fa.company && fb.company && fa.company === fb.company) {
-    reasons.push("Same company");
-  }
 
   const sa = fa.seniorityLabel;
   const sb = fb.seniorityLabel;
-  let seniorityScore = 0;
-  if (sa && sb) {
-    if (sa === sb) {
-      seniorityScore = 0.15;
-      reasons.push(`Seniority: ${sa}`);
-    } else {
-      return { score: 0, isMatch: false, reasons: [`Different seniority: ${sa} vs ${sb}`] };
-    }
-  } else {
-    seniorityScore = 0.08;
+  if (sa && sb && sa !== sb) {
+    return { score: 0, isMatch: false, reasons: [`Different seniority: ${sa} vs ${sb}`] };
   }
 
-  const daysA = Date.parse(a.messageDate);
-  const daysB = Date.parse(b.messageDate);
-  const dayDiff = Math.abs(daysA - daysB) / (1000 * 60 * 60 * 24);
-  let timeScore = 0;
-  if (dayDiff <= 1) {
-    timeScore = 0.15;
-    reasons.push("Same day");
-  } else if (dayDiff <= 3) {
-    timeScore = 0.12;
-    reasons.push("Within 3 days");
-  } else if (dayDiff <= 7) {
-    timeScore = 0.08;
-    reasons.push("Within a week");
-  } else if (dayDiff <= 14) {
-    timeScore = 0.05;
-  }
-
-  let locationScore = 0;
-  if (fa.isRemote === true && fb.isRemote === true) {
-    locationScore = 0.05;
-    reasons.push("Both remote");
-  } else if (fa.isRemote === false && fb.isRemote === false) {
-    locationScore = 0.03;
-    reasons.push("Both office");
-  } else if (fa.isRemote !== null && fb.isRemote !== null && fa.isRemote !== fb.isRemote) {
+  if (fa.isRemote !== null && fb.isRemote !== null && fa.isRemote !== fb.isRemote) {
     return { score: 0, isMatch: false, reasons: ["Remote/office conflict"] };
-  } else {
-    locationScore = 0.01;
   }
 
   if (fa.location && fb.location && fa.location !== fb.location) {
     return { score: 0, isMatch: false, reasons: [`Different locations: ${fa.location} vs ${fb.location}`] };
   }
-  if (fa.location && fb.location && fa.location === fb.location) {
-    locationScore = Math.max(locationScore, 0.08);
-    reasons.push(`Location: ${fa.location}`);
-  }
 
-  let salaryScore = 0;
   if (fa.hasSalary && fb.hasSalary) {
     if (fa.currency !== fb.currency) {
       return { score: 0, isMatch: false, reasons: [`Different salary currency: ${fa.currency} vs ${fb.currency}`] };
     }
-    const faRange = (fa.salaryMax ?? fa.salaryMin ?? 0) - (fa.salaryMin ?? 0);
-    const fbRange = (fb.salaryMax ?? fb.salaryMin ?? 0) - (fb.salaryMin ?? 0);
     const faMid = ((fa.salaryMin ?? 0) + (fa.salaryMax ?? fa.salaryMin ?? 0)) / 2;
     const fbMid = ((fb.salaryMin ?? 0) + (fb.salaryMax ?? fb.salaryMin ?? 0)) / 2;
     if (faMid > 0 && fbMid > 0) {
@@ -305,6 +261,50 @@ export function computeFuzzyMatch(a: VacancyRecord, b: VacancyRecord): FuzzyMatc
       if (ratio < 0.5) {
         return { score: 0, isMatch: false, reasons: ["Salary differs by more than 2x"] };
       }
+    }
+  }
+
+  const mappedTitleScore = titleSim * 0.40;
+
+  const daysA = Date.parse(a.messageDate);
+  const daysB = Date.parse(b.messageDate);
+  const dayDiff = Math.abs(daysA - daysB) / (1000 * 60 * 60 * 24);
+  let timeScore = 0;
+  if (dayDiff <= 1) {
+    timeScore = 0.05;
+  } else if (dayDiff <= 3) {
+    timeScore = 0.03;
+  } else if (dayDiff <= 7) {
+    timeScore = 0.02;
+  }
+
+  let companyScore = 0;
+  if (fa.company && fb.company && fa.company === fb.company) {
+    companyScore = 0.15;
+    reasons.push("Same company");
+  }
+
+  let seniorityScore = 0;
+  if (sa && sb && sa === sb) {
+    seniorityScore = 0.10;
+    reasons.push(`Seniority: ${sa}`);
+  }
+
+  let locationScore = 0;
+  if (fa.location && fb.location && fa.location === fb.location) {
+    locationScore = 0.08;
+    reasons.push(`Location: ${fa.location}`);
+  } else if (fa.isRemote === true && fb.isRemote === true) {
+    locationScore = 0.05;
+    reasons.push("Both remote");
+  }
+
+  let salaryScore = 0;
+  if (fa.hasSalary && fb.hasSalary) {
+    const faMid = ((fa.salaryMin ?? 0) + (fa.salaryMax ?? fa.salaryMin ?? 0)) / 2;
+    const fbMid = ((fb.salaryMin ?? 0) + (fb.salaryMax ?? fb.salaryMin ?? 0)) / 2;
+    if (faMid > 0 && fbMid > 0) {
+      const ratio = Math.min(faMid, fbMid) / Math.max(faMid, fbMid);
       if (ratio >= 0.8) {
         salaryScore = 0.10;
         reasons.push("Similar salary");
@@ -312,20 +312,37 @@ export function computeFuzzyMatch(a: VacancyRecord, b: VacancyRecord): FuzzyMatc
         salaryScore = 0.05;
       }
     }
-  } else if (fa.hasSalary !== fb.hasSalary) {
-    salaryScore = 0.02;
   }
 
-  const companyBonus = fa.company && fb.company && fa.company === fb.company ? 0.10 : 0;
-  const titleScore = titleSim * 0.45;
+  const baseScore = mappedTitleScore + timeScore;
+  const bonusScore = companyScore + seniorityScore + locationScore + salaryScore;
+  const hasConfirmatorySignal = bonusScore > 0;
 
-  const score = Math.min(1, Math.max(0, titleScore + seniorityScore + timeScore + locationScore + salaryScore + companyBonus));
+  if (!hasConfirmatorySignal) {
+    if (baseScore < 0.15) {
+      return { score: 0, isMatch: false, reasons: ["No confirmatory signal beyond title"] };
+    }
+    reasons.push("Title match only");
+  }
+
+  const hasCompanyOnlySignal = bonusScore === companyScore && companyScore > 0 && seniorityScore === 0 && salaryScore === 0 && locationScore === 0;
+
+  if (hasCompanyOnlySignal && titleSim < 0.70) {
+    return { score: 0, isMatch: false, reasons: ["Company match only with low title similarity"] };
+  }
+
+  const rawScore = baseScore + bonusScore;
+  const score = hasConfirmatorySignal
+    ? rawScore
+    : rawScore * 0.5;
 
   reasons.push(`Title similarity: ${titleSim.toFixed(3)}`);
 
+  const clamped = Math.min(1, Math.max(0, score));
+
   return {
-    score: parseFloat(score.toFixed(4)),
-    isMatch: score >= FUZZY_MATCH_THRESHOLD,
+    score: parseFloat(clamped.toFixed(4)),
+    isMatch: clamped >= FUZZY_MATCH_THRESHOLD,
     reasons
   };
 }

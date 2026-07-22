@@ -138,6 +138,11 @@ Known from recent work:
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
 - Broad-domain adapters/path guards exist for safe shapes on `www.aviasales.ru`, `cloud.ru`, `www.tbank.ru`, and `yandex.ru`, but they are not seeded as active built-ins.
 
+- Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). 14 unit tests + 2 integration tests pass.
+- Ingestor (`vacancyIngestor.ts`) calls `findAndRecordFuzzyDuplicate` after recording a new vacancy but before `matchVacancyForEligibleUsers`. On fuzzy hit, the new vacancy is linked and matching/notification is skipped.
+- DB methods: `listFuzzyMatchCandidates(vacancyId, days, limit)` — indexed query, `recordVacancyFuzzyDuplicate` — ordered INSERT OR IGNORE, `listVacancyDuplicatePosts` — UNIONs fuzzy sources.
+- `vacancy_fuzzy_duplicates` table stores `vacancy_id`, `duplicate_vacancy_id`, `score`, `reasons_json`, ordered so `vacancy_id < duplicate_vacancy_id`.
+
 Before starting new code work, rerun:
 
 ```powershell
@@ -148,9 +153,9 @@ npx tsc -p tsconfig.json --pretty false
 
 ## Git / Workspace Notes
 
-- Git metadata is available; `feat/quality-audit-review` is an active branch pushed to origin.
-- All changes from the `/qualityaudit` command work are committed and pushed.
-- PR #16 is open: `feat/quality-audit-review` → `master`.
+- Git metadata is available.
+- Current branch: `feature/fuzzy-vacancy-dedup` (PR #19).
+- PR #19 is NOT ready to merge — 4 review issues identified, 3 fixed (scoring, ingestor ordering, efficient DB query), 1 pending (integration tests — now fixed with 2 passing integration tests).
 
 ## Known Problems
 
