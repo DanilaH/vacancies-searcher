@@ -4121,6 +4121,7 @@ export class VacancyDatabase {
             notify_on_empty_cycle,
             daily_digest_enabled,
             daily_digest_time_minutes,
+            instant_vacancy_notifications_enabled,
             weekly_page_size,
             vacancy_language_mode,
             onboarding_completed,
@@ -4180,6 +4181,13 @@ export class VacancyDatabase {
     this.getDb()
       .prepare("UPDATE user_settings SET daily_digest_time_minutes = ?, updated_at = ? WHERE user_id = ?")
       .run(minutes, nowIso(), userId);
+  }
+
+  setInstantVacancyNotificationsEnabled(userId: string, enabled: boolean): void {
+    this.ensureUserSettings(userId);
+    this.getDb()
+      .prepare("UPDATE user_settings SET instant_vacancy_notifications_enabled = ?, updated_at = ? WHERE user_id = ?")
+      .run(enabled ? 1 : 0, nowIso(), userId);
   }
 
   listDailyDigestEnabledUsers(): Array<{ userId: string; dailyDigestTimeMinutes: number | null }> {
@@ -5068,6 +5076,7 @@ export class VacancyDatabase {
             notify_on_empty_cycle,
             daily_digest_enabled,
             daily_digest_time_minutes,
+            instant_vacancy_notifications_enabled,
             weekly_page_size,
             vacancy_language_mode,
             onboarding_completed,
@@ -5076,7 +5085,7 @@ export class VacancyDatabase {
             pending_input_payload,
             pending_keyword_kind,
             updated_at
-          ) VALUES (?, 0, 'keywords', 0, 0, 0, NULL, NULL, 'ru_en', 0, NULL, NULL, NULL, NULL, ?)
+          ) VALUES (?, 0, 'keywords', 0, 0, 0, NULL, 1, NULL, 'ru_en', 0, NULL, NULL, NULL, NULL, ?)
         `
       )
       .run(userId, timestamp);

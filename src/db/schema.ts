@@ -216,6 +216,7 @@ export function createBaseSchema(db: SqliteDatabase): void {
       notify_on_empty_cycle INTEGER NOT NULL DEFAULT 0,
       daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
       daily_digest_time_minutes INTEGER,
+      instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1,
       weekly_page_size INTEGER,
       vacancy_language_mode TEXT NOT NULL DEFAULT 'ru_en',
       onboarding_completed INTEGER NOT NULL DEFAULT 0,
@@ -582,6 +583,10 @@ function ensureUserSettingsColumns(db: SqliteDatabase): void {
     db.prepare(
       "ALTER TABLE user_settings ADD COLUMN daily_digest_time_minutes INTEGER CHECK(daily_digest_time_minutes BETWEEN 0 AND 1439 OR daily_digest_time_minutes IS NULL)"
     ).run();
+  }
+
+  if (!columns.has("instant_vacancy_notifications_enabled")) {
+    db.prepare("ALTER TABLE user_settings ADD COLUMN instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1").run();
   }
 
   if (!columns.has("weekly_page_size")) {
@@ -1420,6 +1425,9 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
     : "'ru_en'";
   const notifyOnEmptyCycleSelect = columns.has("notify_on_empty_cycle") ? "COALESCE(notify_on_empty_cycle, 0)" : "0";
   const dailyDigestEnabledSelect = columns.has("daily_digest_enabled") ? "COALESCE(daily_digest_enabled, 0)" : "0";
+  const instantVacancyNotificationsEnabledSelect = columns.has("instant_vacancy_notifications_enabled")
+    ? "COALESCE(instant_vacancy_notifications_enabled, 1)"
+    : "1";
   const dailyDigestTimeMinutesSelect = columns.has("daily_digest_time_minutes")
     ? "CASE WHEN daily_digest_time_minutes BETWEEN 0 AND 1439 THEN daily_digest_time_minutes ELSE NULL END"
     : "NULL";
@@ -1456,6 +1464,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         notify_on_empty_cycle INTEGER NOT NULL DEFAULT 0,
         daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
         daily_digest_time_minutes INTEGER,
+        instant_vacancy_notifications_enabled INTEGER NOT NULL DEFAULT 1,
         weekly_page_size INTEGER,
         vacancy_language_mode TEXT NOT NULL DEFAULT 'ru_en',
         onboarding_completed INTEGER NOT NULL DEFAULT 0,
@@ -1518,6 +1527,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         notify_on_empty_cycle,
         daily_digest_enabled,
         daily_digest_time_minutes,
+        instant_vacancy_notifications_enabled,
         weekly_page_size,
         vacancy_language_mode,
         onboarding_completed,
@@ -1538,6 +1548,7 @@ function rebuildUserSettingsTable(db: SqliteDatabase, columns: Set<string>): voi
         ${notifyOnEmptyCycleSelect},
         ${dailyDigestEnabledSelect},
         ${dailyDigestTimeMinutesSelect},
+        ${instantVacancyNotificationsEnabledSelect},
         ${weeklyPageSizeSelect},
         ${vacancyLanguageModeSelect},
         ${onboardingCompletedSelect},

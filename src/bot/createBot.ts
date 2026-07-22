@@ -2735,6 +2735,31 @@ export function createBotController(
         await ctx.answerCallbackQuery();
         await showAdminPanel(ctx, "edit");
     });
+    bot.callbackQuery("notifications:toggle_instant_vacancy", async (ctx) => {
+        const currentUserId = getCurrentUserId(ctx);
+        if (!currentUserId) {
+            await ctx.answerCallbackQuery({ text: "⚠️ Не удалось определить пользователя." });
+            return;
+        }
+        const currentSettings = database.getUserSettings(currentUserId);
+        const newValue = !currentSettings.instantVacancyNotificationsEnabled;
+        database.setInstantVacancyNotificationsEnabled(currentUserId, newValue);
+        await ctx.answerCallbackQuery({
+            text: newValue
+                ? "🔔 Уведомления о новых вакансиях включены."
+                : "🔕 Уведомления о новых вакансиях выключены."
+        });
+        await analytics.capture({
+            eventName: "instant_vacancy_notifications_toggled",
+            userId: currentUserId,
+            properties: {
+                ...buildUserAnalyticsProperties(currentUserId),
+                new_value: newValue,
+                source: "user_settings"
+            }
+        });
+        await showNotificationsPanel(ctx, "edit");
+    });
     bot.callbackQuery("notifications:toggle_empty_cycle_notice", async (ctx) => {
         const currentUserId = getCurrentUserId(ctx);
         if (!currentUserId) {

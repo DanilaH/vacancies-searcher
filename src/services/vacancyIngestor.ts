@@ -288,11 +288,19 @@ export class VacancyIngestor {
       });
 
       matchedUserIds.push(user.userId);
-      const notificationSent = await this.bot.notifyVacancy(matchedVacancy);
-      if (!notificationSent) {
-        logger.info(
+      const userSettings = this.database.getUserSettings(user.userId);
+      if (userSettings.instantVacancyNotificationsEnabled) {
+        const notificationSent = await this.bot.notifyVacancy(matchedVacancy);
+        if (!notificationSent) {
+          logger.info(
+            { userId: user.userId, vacancyId: matchedVacancy.id },
+            "Vacancy matched a user, but notification was not delivered."
+          );
+        }
+      } else {
+        logger.debug(
           { userId: user.userId, vacancyId: matchedVacancy.id },
-          "Vacancy matched a user, but notification was not delivered."
+          "Instant notifications disabled; match saved but not sent."
         );
       }
     }

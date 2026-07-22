@@ -168,8 +168,17 @@ export function createWeeklyZeroStateKeyboard(
     .text("🏠 Меню", "menu:home");
 }
 
-export function createNotificationsKeyboard(notifyOnEmptyCycle: boolean, dailyDigestEnabled = false): InlineKeyboard {
+export function createNotificationsKeyboard(
+  notifyOnEmptyCycle: boolean,
+  dailyDigestEnabled = false,
+  instantVacancyNotificationsEnabled = true
+): InlineKeyboard {
   return new InlineKeyboard()
+    .text(
+      instantVacancyNotificationsEnabled ? "🔔 Новые вакансии сразу: включены" : "🔕 Новые вакансии сразу: выключены",
+      "notifications:toggle_instant_vacancy"
+    )
+    .row()
     .text(
       notifyOnEmptyCycle ? "🔕 Не сообщать, если новых вакансий нет" : "🔔 Сообщать, если новых вакансий нет",
       "notifications:toggle_empty_cycle_notice"

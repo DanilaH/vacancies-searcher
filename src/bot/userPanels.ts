@@ -174,8 +174,8 @@ export function createUserPanels(deps: UserPanelsDeps): UserPanels {
   async function showNotificationsPanel(ctx: Context, mode: BotPanelMode = "reply"): Promise<void> {
     const currentUserId = getCurrentUserId(ctx);
     const settings = currentUserId ? database.getUserSettings(currentUserId) : null;
-    await replyOrEdit(ctx, mode, formatNotificationPreferences(settings?.notifyOnEmptyCycle ?? false, settings?.dailyDigestEnabled ?? false), {
-      reply_markup: createNotificationsKeyboard(settings?.notifyOnEmptyCycle ?? false, settings?.dailyDigestEnabled ?? false)
+    await replyOrEdit(ctx, mode, formatNotificationPreferences(settings?.notifyOnEmptyCycle ?? false, settings?.dailyDigestEnabled ?? false, settings?.instantVacancyNotificationsEnabled ?? true), {
+      reply_markup: createNotificationsKeyboard(settings?.notifyOnEmptyCycle ?? false, settings?.dailyDigestEnabled ?? false, settings?.instantVacancyNotificationsEnabled ?? true)
     });
   }
 
