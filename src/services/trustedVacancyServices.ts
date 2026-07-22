@@ -26,13 +26,10 @@ const KNOWN_DIRECT_HOSTS = new Set([
   "designer.ru"
 ]);
 
+const DESIGNER_RU_VACANCY_SLUG_PATTERN = /^[a-z0-9]+(?:-+[a-z0-9]+)*$/u;
+
 function isValidDesignerRuSlug(slug: string): boolean {
-  if (/%2[fF]/u.test(slug)) return false;
-  const decoded = decodeURIComponent(slug);
-  if (decoded === "." || decoded === "..") return false;
-  if (/^\s*$/u.test(decoded)) return false;
-  if (!/[a-zA-Z0-9\u0400-\u04FF]/u.test(decoded)) return false;
-  return true;
+  return DESIGNER_RU_VACANCY_SLUG_PATTERN.test(slug);
 }
 
 const INGAMEJOB_SUPPORTED_LOCALES = new Set(["en", "pl", "uk", "ru"]);

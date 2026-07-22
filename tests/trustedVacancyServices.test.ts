@@ -539,20 +539,17 @@ test("designer_ru: correct vacancy URL is accepted, HTTP and other hostnames rej
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/some/section/"), false);
   // 404
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/jobs/"), false);
-  // Empty slug
-  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t//"), false);
-  // Dot-only slug
+  // Malformed/unusual slug characters rejected
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/%E0%A4%A/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/a%5Cb/"), false);
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/./"), false);
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/../"), false);
-  // Whitespace-only slug
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/%20/"), false);
-  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/%09/"), false);
-  // No letters or digits in slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/a%2Fb/"), false);
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/-/"), false);
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/_/"), false);
-  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/~/"), false);
-  // Slashes in slug
-  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/a%2Fb/"), false);
+  // Double hyphen allowed
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/designer--senior-2/"), true);
 });
 
 test("designer_ru: detected as known host via detectTrustedVacancyService", () => {
@@ -582,6 +579,10 @@ test("designer_ru: invalid path throws for non-vacancy URL shapes", () => {
   assert.throws(
     () => detectTrustedVacancyService("https://careers.designer.ru/t/some-role/"),
     /subdomain/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://designer.ru/u/%E0%A4%A/"),
+    /not supported/iu
   );
 });
 
