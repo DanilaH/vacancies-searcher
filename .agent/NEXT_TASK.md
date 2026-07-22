@@ -1,40 +1,53 @@
 # Next Task
 
-PR #23 (`feat/notification-quiet-hours`) is under review — night quiet hours for instant notifications.
+Only one immediate implementation task belongs in this file.
 
-## Feature summary
+## Active: trusted adapter research for `job.mts.ru`
 
-- User can enable `🌙 Ночная пауза 23:00–08:00` in notification settings
-- When active + instant notifications enabled + current local time in 23:00–08:00 (config timezone):
-  - match is created with `deliveredAt = null`
-  - notification enqueued to `pending_notification_queue` with `scheduled_at = 08:00 local`
-- `PendingNotificationScheduler` runs every 60s, delivers due items at/after 08:00
-- Queue survives process restart (SQLite)
-- Dedup: `UNIQUE(user_id, vacancy_id)` prevents double enqueue + `status='pending'` filter
-- Hidden/applied status cancels pending delivery; saved does not
-- Retry with exponential backoff (5min–6h), `MAX_DELIVERY_ATTEMPTS=10` (total), dead-letter on exhaustion; exceptions in `deliver()` use same backoff path
-- `VacancyIngestor` accepts `now: () => Date` for controlled time testing
-- Extracted handler `notificationQuietHoursHandler.ts` with callback test coverage
+Status: in progress in a separate executor branch.
 
-## Key files
+Product phase: source quality and vacancy relevance.
 
-- `src/db/schema.ts` — `pending_notification_queue` table + `status` column migration
-- `src/db/database.ts` — all queue methods + `markPendingNotificationDeadLetter`
-- `src/db/rowMappers.ts` — `notification_quiet_hours_enabled` field
-- `src/types.ts` — `notificationQuietHoursEnabled`, `PendingNotificationRecord` (with `status`)
-- `src/services/quietHoursUtils.ts` — `isInQuietHours`, `computeNextQuietHoursEnd`
-- `src/services/pendingNotificationScheduler.ts` — scheduler + `MAX_DELIVERY_ATTEMPTS` + dead-letter + exception→backoff
-- `src/services/vacancyIngestor.ts` — quiet hours gating with `now` injection
-- `src/bot/notificationQuietHoursHandler.ts` — extracted callback handler
-- `src/bot/createBot.ts` — `notifications:toggle_quiet_hours` callback
-- `src/bot/keyboards.ts` — toggle button
-- `src/bot/formatters.ts` — status line
-- `tests/pendingNotificationQueue.test.ts` — 62 tests
+Parent task: `docs/tasks/TASK-001-trusted-service-coverage.md`.
+
+## Goal
+
+Research real public `job.mts.ru` vacancy pages and add a safe trusted adapter only if the implementation can prove:
+
+- an exact public hostname;
+- a narrow vacancy URL shape;
+- a stable JSON-LD or specialized vacancy signal;
+- reliable rejection of lists, content pages, subdomains and malformed paths;
+- preservation of Telegram-only ingestion on temporary failures.
+
+If that safety case cannot be proven, deliver a research-only PR without a production adapter.
+
+## Required delivery workflow
+
+1. Work in a feature branch created from the current `master`.
+2. Keep the PR limited to `job.mts.ru`.
+3. Add focused URL, parser, ingestion and migration tests when code/schema changes.
+4. Run the full verification baseline.
+5. Push the branch and open a PR into `master`.
+6. Stop for review; do not self-merge.
 
 ## Verification
 
-```powershell
-npx tsc -p tsconfig.json --pretty false
+```bash
+node --import tsx --test \
+  tests/trustedVacancyServices.test.ts \
+  tests/trustedVacancyIngestor.test.ts \
+  tests/databaseMigration.test.ts
+
 npm test
+npx tsc -p tsconfig.json --pretty false
 npm run build
 ```
+
+## After this task
+
+Do not select the next product task from this file. After review and merge:
+
+1. update `docs/STATUS.md`;
+2. consult the fixed order in `docs/product/ROADMAP.md`;
+3. write exactly one new immediate task here.
