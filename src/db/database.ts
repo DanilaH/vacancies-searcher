@@ -2962,88 +2962,124 @@ export class VacancyDatabase {
       )
       .all(sinceIso) as Array<{ bucket: string; count: number }>;
 
+    const bucketMap = new Map<string, number>(bucketRows.map((r) => [r.bucket, r.count]));
+    const allBuckets = ["0.35\u20130.49", "0.50\u20130.69", "0.70\u20130.84", "0.85\u20131.00"];
+    const normalizedBuckets = allBuckets.map((label) => ({ label, count: bucketMap.get(label) ?? 0 }));
+
     const topPairs = db
       .prepare(
-        `SELECT v.source_name, v.source_channel, COUNT(*) AS link_count
-        FROM vacancy_fuzzy_duplicates d
-        JOIN vacancies v ON v.id = d.duplicate_vacancy_id
-        WHERE d.created_at >= ?
-        GROUP BY v.source_name, v.source_channel
+        `SELECT source_name, source_channel, SUM(cnt) AS link_count
+        FROM (
+          SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+          FROM vacancy_fuzzy_duplicates d
+          JOIN vacancies v ON v.id = d.vacancy_id
+          WHERE d.created_at >= ?
+          GROUP BY v.source_name, v.source_channel
+          UNION ALL
+          SELECT v.source_name, v.source_channel, COUNT(*) AS cnt
+          FROM vacancy_fuzzy_duplicates d
+          JOIN vacancies v ON v.id = d.duplicate_vacancy_id
+          WHERE d.created_at >= ?
+          GROUP BY v.source_name, v.source_channel
+        )
+        GROUP BY source_name, source_channel
         ORDER BY link_count DESC
         LIMIT 10`
       )
-      .all(sinceIso) as Array<{ source_name: string; source_channel: string; link_count: number }>;
+      .all(sinceIso, sinceIso) as Array<{ source_name: string; source_channel: string; link_count: number }>;
 
     const lastDateRow = db
       .prepare("SELECT MAX(created_at) AS last_date FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
       .get(sinceIso) as { last_date: string | null };
 
-    const edgeRows = db
+    const recentEdges = db
       .prepare("SELECT vacancy_id, duplicate_vacancy_id FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
       .all(sinceIso) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
 
-    const parent = new Map<number, number>();
-    const rank = new Map<number, number>();
-
-    function find(x: number): number {
-      const p = parent.get(x);
-      if (p === undefined || p === x) return x;
-      const root = find(p);
-      parent.set(x, root);
-      return root;
+    const touchedNodeIds = new Set<number>();
+    for (const row of recentEdges) {
+      touchedNodeIds.add(row.vacancy_id);
+      touchedNodeIds.add(row.duplicate_vacancy_id);
     }
 
-    function union(a: number, b: number): void {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra === rb) return;
-      const raRank = rank.get(ra) ?? 0;
-      const rbRank = rank.get(rb) ?? 0;
-      if (raRank < rbRank) {
-        parent.set(ra, rb);
-      } else if (raRank > rbRank) {
-        parent.set(rb, ra);
-      } else {
-        parent.set(rb, ra);
-        rank.set(ra, raRank + 1);
+    let groupSizeBuckets: { size2: number; size3: number; size4plus: number };
+    if (touchedNodeIds.size === 0) {
+      groupSizeBuckets = { size2: 0, size3: 0, size4plus: 0 };
+    } else {
+      const allTouched = [...touchedNodeIds];
+      const placeholders = allTouched.map(() => "?").join(",");
+      const allEdges = db
+        .prepare(
+          `SELECT vacancy_id, duplicate_vacancy_id
+          FROM vacancy_fuzzy_duplicates
+          WHERE vacancy_id IN (${placeholders}) OR duplicate_vacancy_id IN (${placeholders})`
+        )
+        .all(...allTouched, ...allTouched) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+
+      const parent = new Map<number, number>();
+      const rank = new Map<number, number>();
+
+      function find(x: number): number {
+        const p = parent.get(x);
+        if (p === undefined || p === x) return x;
+        const root = find(p);
+        parent.set(x, root);
+        return root;
       }
-    }
 
-    for (const row of edgeRows) {
-      if (!parent.has(row.vacancy_id)) { parent.set(row.vacancy_id, row.vacancy_id); rank.set(row.vacancy_id, 0); }
-      if (!parent.has(row.duplicate_vacancy_id)) { parent.set(row.duplicate_vacancy_id, row.duplicate_vacancy_id); rank.set(row.duplicate_vacancy_id, 0); }
-      union(row.vacancy_id, row.duplicate_vacancy_id);
-    }
+      function union(a: number, b: number): void {
+        const ra = find(a);
+        const rb = find(b);
+        if (ra === rb) return;
+        const raRank = rank.get(ra) ?? 0;
+        const rbRank = rank.get(rb) ?? 0;
+        if (raRank < rbRank) {
+          parent.set(ra, rb);
+        } else if (raRank > rbRank) {
+          parent.set(rb, ra);
+        } else {
+          parent.set(rb, ra);
+          rank.set(ra, raRank + 1);
+        }
+      }
 
-    const groupSizes = new Map<number, number>();
-    for (const id of parent.keys()) {
-      const root = find(id);
-      groupSizes.set(root, (groupSizes.get(root) ?? 0) + 1);
-    }
+      for (const row of allEdges) {
+        if (!parent.has(row.vacancy_id)) { parent.set(row.vacancy_id, row.vacancy_id); rank.set(row.vacancy_id, 0); }
+        if (!parent.has(row.duplicate_vacancy_id)) { parent.set(row.duplicate_vacancy_id, row.duplicate_vacancy_id); rank.set(row.duplicate_vacancy_id, 0); }
+        union(row.vacancy_id, row.duplicate_vacancy_id);
+      }
 
-    const sizeBuckets: Record<string, number> = { "2": 0, "3": 0, "4+": 0 };
-    for (const size of groupSizes.values()) {
-      if (size === 2) sizeBuckets["2"]++;
-      else if (size === 3) sizeBuckets["3"]++;
-      else sizeBuckets["4+"]++;
+      const groupSizes = new Map<number, number>();
+      for (const id of parent.keys()) {
+        const root = find(id);
+        groupSizes.set(root, (groupSizes.get(root) ?? 0) + 1);
+      }
+
+      let size2 = 0; let size3 = 0; let size4plus = 0;
+      for (const size of groupSizes.values()) {
+        if (size === 2) size2++;
+        else if (size === 3) size3++;
+        else size4plus++;
+      }
+      groupSizeBuckets = { size2, size3, size4plus };
     }
 
     return {
       totalLinks,
-      totalGroups: groupSizes.size,
+      totalGroups: groupSizeBuckets.size2 + groupSizeBuckets.size3 + groupSizeBuckets.size4plus,
       averageScore: scoreRow.avg,
       minScore: scoreRow.min,
       maxScore: scoreRow.max,
-      scoreBuckets: bucketRows.map((r) => ({ label: r.bucket, count: r.count })),
+      scoreBuckets: normalizedBuckets,
       topSourceChannelPairs: topPairs.map((r) => ({
         sourceName: r.source_name,
         sourceChannel: r.source_channel,
         linkCount: r.link_count
       })),
       groupSizeDistribution: [
-        { sizeLabel: "2", count: sizeBuckets["2"] },
-        { sizeLabel: "3", count: sizeBuckets["3"] },
-        { sizeLabel: "4+", count: sizeBuckets["4+"] }
+        { sizeLabel: "2", count: groupSizeBuckets.size2 },
+        { sizeLabel: "3", count: groupSizeBuckets.size3 },
+        { sizeLabel: "4+", count: groupSizeBuckets.size4plus }
       ],
       lastMatchDate: lastDateRow.last_date
     };

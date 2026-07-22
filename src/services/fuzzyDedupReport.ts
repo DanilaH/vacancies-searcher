@@ -17,6 +17,11 @@ function formatPct(n: number, total: number): string {
   return `${((n / total) * 100).toFixed(1)}%`;
 }
 
+function parseDateSafe(raw: string): Date {
+  if (raw.endsWith("Z")) return new Date(raw);
+  return new Date(raw + "Z");
+}
+
 export function buildFuzzyDedupReport(database: VacancyDatabase, days = 30, now?: Date): string {
   const currentTime = now ?? new Date();
   const since = new Date(currentTime.getTime() - days * 24 * 60 * 60 * 1000);
@@ -64,8 +69,10 @@ export function buildFuzzyDedupReport(database: VacancyDatabase, days = 30, now?
   }
 
   if (stats.lastMatchDate) {
-    const lastDate = new Date(stats.lastMatchDate + "Z");
-    lines.push(`Последнее совпадение: ${formatDate(lastDate)}`);
+    const lastDate = parseDateSafe(stats.lastMatchDate);
+    if (!Number.isNaN(lastDate.getTime())) {
+      lines.push(`Последнее совпадение: ${formatDate(lastDate)}`);
+    }
   }
 
   return lines.join("\n");
