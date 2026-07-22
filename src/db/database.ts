@@ -2648,6 +2648,35 @@ export class VacancyDatabase {
     return rows.map((row) => mapVacancy(row));
   }
 
+  listFuzzyMatchCandidates(vacancyId: number, days: number, limit = 200, titleTokens?: string[]): VacancyRecord[] {
+    const since = recentThresholdIso(days);
+    const tokenClause = titleTokens && titleTokens.length > 0
+      ? `AND (${titleTokens.map(() => "title LIKE ?").join(" OR ")})`
+      : "";
+    const params: (string | number)[] = [since, vacancyId];
+    if (titleTokens && titleTokens.length > 0) {
+      for (const token of titleTokens) {
+        params.push(`%${token}%`);
+      }
+    }
+    params.push(limit);
+    const rows = this.getDb()
+      .prepare(
+        `
+          SELECT *
+          FROM vacancies
+          WHERE message_date >= ?
+            AND id != ?
+            ${tokenClause}
+          ORDER BY message_date DESC, id DESC
+          LIMIT ?
+        `
+      )
+      .all(...params) as VacancyRow[];
+
+    return rows.map((row) => mapVacancy(row));
+  }
+
   listChannelPerformance(sinceIso: string, untilIso: string, limit = 10): ChannelPerformanceRow[] {
     const db = this.getDb();
     const safeLimit = Math.max(1, limit);
@@ -2799,50 +2828,109 @@ export class VacancyDatabase {
       vacancy.sourceMessageId
     ];
 
+    const fuzzyIds = this.getFuzzyGroupVacancyIds(vacancyId).filter((id) => id !== vacancyId);
+
+    const baseSql = `
+      SELECT source_name, source_channel, source_message_id, message_date, url
+      FROM raw_messages
+      WHERE ${duplicatePredicate}
+        AND NOT (source_name = ? AND source_channel = ? AND source_message_id = ?)
+    `;
+
+    const fuzzySql =
+      fuzzyIds.length > 0
+        ? `UNION
+         SELECT v.source_name, v.source_channel, v.source_message_id, v.message_date, v.url
+         FROM vacancies v
+         WHERE v.id IN (${fuzzyIds.map(() => "?").join(",")})`
+        : "";
+
+    const totalParams = fuzzyIds.length > 0 ? [...canonicalParams, ...fuzzyIds] : canonicalParams;
+    const selectParams = fuzzyIds.length > 0
+      ? [...canonicalParams, ...fuzzyIds, safeLimit]
+      : [...canonicalParams, safeLimit];
+
+    const countSql = `SELECT COUNT(*) AS count FROM (${baseSql} ${fuzzySql})`;
+    const selectSql = `${baseSql} ${fuzzySql} ORDER BY message_date DESC, source_name, source_channel LIMIT ?`;
+
     const total =
       (
-        db
-          .prepare(
-            `
-              SELECT COUNT(*) AS count
-              FROM raw_messages
-              WHERE ${duplicatePredicate}
-                AND NOT (
-                  source_name = ?
-                  AND source_channel = ?
-                  AND source_message_id = ?
-                )
-            `
-          )
-          .get(...canonicalParams) as CountRow | undefined
+        db.prepare(countSql).get(...totalParams) as CountRow | undefined
       )?.count ?? 0;
 
-    const rows = db
-      .prepare(
-        `
-          SELECT
-            source_name,
-            source_channel,
-            source_message_id,
-            message_date,
-            url
-          FROM raw_messages
-          WHERE ${duplicatePredicate}
-            AND NOT (
-              source_name = ?
-              AND source_channel = ?
-              AND source_message_id = ?
-            )
-          ORDER BY message_date DESC, id DESC
-          LIMIT ?
-        `
-      )
-      .all(...canonicalParams, safeLimit) as RawMessageDuplicateRow[];
+    const rows = db.prepare(selectSql).all(...selectParams) as RawMessageDuplicateRow[];
 
     return {
       items: rows.map((row) => mapVacancyDuplicatePost(row)),
       total
     };
+  }
+
+  recordVacancyFuzzyDuplicate(
+    vacancyId: number,
+    duplicateVacancyId: number,
+    score: number,
+    reasons: string[]
+  ): void {
+    const [first, second] =
+      vacancyId < duplicateVacancyId ? [vacancyId, duplicateVacancyId] : [duplicateVacancyId, vacancyId];
+    this.getDb()
+      .prepare(
+        `
+          INSERT OR IGNORE INTO vacancy_fuzzy_duplicates (vacancy_id, duplicate_vacancy_id, score, reasons_json)
+          VALUES (?, ?, ?, ?)
+        `
+      )
+      .run(first, second, score, JSON.stringify(reasons));
+  }
+
+  getFuzzyGroupVacancyIds(vacancyId: number): number[] {
+    const db = this.getDb();
+    const seen = new Set<number>([vacancyId]);
+    let queue = [vacancyId];
+    while (queue.length > 0) {
+      const ids = db
+        .prepare(
+          `
+            SELECT vacancy_id, duplicate_vacancy_id
+            FROM vacancy_fuzzy_duplicates
+            WHERE vacancy_id IN (${queue.map(() => "?").join(",")})
+               OR duplicate_vacancy_id IN (${queue.map(() => "?").join(",")})
+          `
+        )
+        .all(...queue, ...queue) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+      const next: number[] = [];
+      for (const row of ids) {
+        for (const id of [row.vacancy_id, row.duplicate_vacancy_id]) {
+          if (!seen.has(id)) {
+            seen.add(id);
+            next.push(id);
+          }
+        }
+      }
+      queue = next;
+    }
+    return [...seen];
+  }
+
+  getFuzzyGroupRootId(vacancyId: number): number {
+    const ids = this.getFuzzyGroupVacancyIds(vacancyId);
+    return ids.length > 0 ? Math.min(...ids) : vacancyId;
+  }
+
+  hasUserMatchedAnyVacancy(userId: string, vacancyIds: number[]): boolean {
+    if (vacancyIds.length === 0) return false;
+    const row = this.getDb()
+      .prepare(
+        `
+          SELECT 1 AS found
+          FROM user_vacancy_matches
+          WHERE user_id = ? AND vacancy_id IN (${vacancyIds.map(() => "?").join(",")})
+          LIMIT 1
+        `
+      )
+      .get(userId, ...vacancyIds) as { found: number } | undefined;
+    return row !== undefined;
   }
 
   listRecentRawMessageTexts(days: number, limit = 500): string[] {
