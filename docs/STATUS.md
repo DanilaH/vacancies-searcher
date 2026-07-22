@@ -21,24 +21,29 @@ Recent merged capabilities include:
 - instant-notification toggle;
 - quiet hours with persistent delivery queue and bounded retry;
 - trusted adapter for `ingamejob.com`;
-- JSON-LD-only trusted adapter for `designer.ru`.
+- JSON-LD-only trusted adapter for `designer.ru` (PR #25);
+- Product JSON-LD trusted adapter for `job.mts.ru` with archive detection (PR #27).
 
 Latest accepted master checkpoint:
 
-- PR #25 merged;
-- merge commit: `08ae6b37c51fb6177eb9d3342e2f4ff4b9c05562`.
+- PR #27 merged;
+- merge commit: `71c8850`.
+
+## Recently completed
+
+- `designer.ru` — JSON-LD-only trusted adapter (PR #25).
+- `job.mts.ru` — Product JSON-LD adapter with archive detection (PR #27).
+- `rabota.sber.ru` — researched, no production adapter (see `docs/research/rabota-sber-ru.md`).
 
 ## In progress
 
-Trusted-service research and adapter work for `job.mts.ru` is running in a separate feature branch.
-
-This documentation sync intentionally does not modify trusted-service source, schema, tests, `.agent/CURRENT_STATE.md`, or `docs/tasks/TASK-001-trusted-service-coverage.md`, so it can proceed without conflicting with the adapter implementation.
+Trusted-service research for `job.megafon.ru` is the next candidate.
 
 ## Next after the active adapter
 
-1. Decide whether the short trusted-adapter cycle needs one more proven domain or should stop.
+1. Continue the bounded trusted-adapter cycle: probe remaining pending candidates (`job.megafon.ru`, `job.alfabank.ru`, `youngjunior.ru`, etc.) one PR per domain.
 2. Run a manual Telegram UX smoke using a test bot/chat.
-3. Improve “why no results” diagnostics.
+3. Improve "why no results" diagnostics.
 4. Improve multi-vacancy aggregate isolation.
 5. Add owner-facing channel quality analytics.
 
@@ -67,7 +72,7 @@ Resolved:
 Still to decide:
 
 - whether manual Telegram QA uses the live bot or a dedicated test bot;
-- whether another trusted domain is worth implementing after `job.mts.ru`.
+- which remaining trusted-domain candidates get a production adapter vs research-only delivery.
 
 ## Verification baseline
 
