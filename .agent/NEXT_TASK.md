@@ -1,10 +1,8 @@
 # Next Task
 
-PR #27 (`feat/trusted-mts-jobs`) is under review — MTS Jobs trusted adapter with archive detection.
+## Active: trusted adapter research for `job.megafon.ru`
 
-## Active: trusted adapter research for `job.mts.ru`
-
-Status: in progress in a separate executor branch.
+Status: pending — start after the `rabota.sber.ru` research PR is reviewed and merged.
 
 Product phase: source quality and vacancy relevance.
 
@@ -12,7 +10,7 @@ Parent task: `docs/tasks/TASK-001-trusted-service-coverage.md`.
 
 ## Goal
 
-Research real public `job.mts.ru` vacancy pages and add a safe trusted adapter only if the implementation can prove:
+Research real public `job.megafon.ru` vacancy pages and add a safe trusted adapter only if the implementation can prove:
 
 - an exact public hostname;
 - a narrow vacancy URL shape;
@@ -25,7 +23,7 @@ If that safety case cannot be proven, deliver a research-only PR without a produ
 ## Required delivery workflow
 
 1. Work in a feature branch created from the current `master`.
-2. Keep the PR limited to `job.mts.ru`.
+2. Keep the PR limited to `job.megafon.ru`.
 3. Add focused URL, parser, ingestion and migration tests when code/schema changes.
 4. Run the full verification baseline.
 5. Push the branch and open a PR into `master`.
