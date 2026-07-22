@@ -506,10 +506,12 @@ test("notification settings keyboard names concrete notification types", () => {
   const labels = rows(keyboard).flat().map((button) => button.text);
 
   assert.deepEqual(data, [
+    "notifications:toggle_instant_vacancy",
     "notifications:toggle_empty_cycle_notice",
     "notifications:toggle_daily_digest",
     "menu:settings"
   ]);
+  assert.ok(labels.includes("🔔 Новые вакансии сразу: включены"));
   assert.ok(labels.includes("🔔 Сообщать, если новых вакансий нет"));
   assert.ok(labels.includes("🌅 Выключить утренний дайджест"));
 });

@@ -286,7 +286,8 @@ export type AnalyticsEventName =
   | "vacancy_relevance_feedback"
   | "poll_cycle_completed"
   | "poll_cycle_failed"
-  | "vacancy_fuzzy_duplicate_found";
+  | "vacancy_fuzzy_duplicate_found"
+  | "instant_vacancy_notifications_toggled";
 
 export type AnalyticsPropertyValue =
   | string
@@ -422,6 +423,7 @@ export interface UserSettings {
   notifyOnEmptyCycle: boolean;
   dailyDigestEnabled: boolean;
   dailyDigestTimeMinutes: number | null;
+  instantVacancyNotificationsEnabled: boolean;
   weeklyPageSize: number | null;
   vacancyLanguageMode: VacancyLanguageMode;
   onboardingCompleted: boolean;
