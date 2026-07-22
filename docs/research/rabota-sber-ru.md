@@ -85,8 +85,8 @@ No `<article>`, `<main>`, or other content containers with vacancy text.
 
 - The API is not public, undocumented, and may require cookies/session tokens.
 - Using it would create an unstable dependency on internal implementation details.
-- It would bypass the trusted-service security model (HTTP-only fetch of public HTML).
-- It cannot be verified by simple HTTP requests in tests.
+- Integrating an undocumented private API would require separate research into authentication, SSRF protections, redirects, response limits, and contract stability.
+- That integration is outside the scope of a small trusted adapter and cannot be justified by the current evidence or verified with simple public-HTML fixtures.
 
 ## Verdict
 
