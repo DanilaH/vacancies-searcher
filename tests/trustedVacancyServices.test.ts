@@ -500,4 +500,195 @@ test("ingamejob: redirect is rejected", async () => {
   database.close();
 });
 
+test("designer_ru: correct vacancy URL is accepted, HTTP and other hostnames rejected", () => {
+  // Each confirmed category accepted
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/some-vacancy/"), true);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/another-vacancy/"), true);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/r/relocation-role/"), true);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/m/freelance-gig/"), true);
+  // HTTP rejected via normalizeTrustedVacancyUrl
+  assert.throws(() => normalizeTrustedVacancyUrl("http://designer.ru/u/some-role/"), /HTTPS/u);
+  // Wrong hostname
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://other.com/u/some-role/"), false);
+  // Subdomain rejected
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://www.designer.ru/u/some-role/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://blog.designer.ru/u/some-role/"), false);
+  // Home page
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/"), false);
+  // List pages (single segment)
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/r/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/m/"), false);
+  // Profile / resume database
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/prodesigners/"), false);
+  // Account / auth
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/account/"), false);
+  // News
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/news/"), false);
+  // Telegram channels
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/c/"), false);
+  // Career articles
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/design-career/"), false);
+  // How-to page
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/kak-nayti-dizaynera/"), false);
+  // Unknown single-letter category
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/x/some-role/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/a/some-role/"), false);
+  // Non-vacancy two-segment path
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/some/section/"), false);
+  // 404
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/jobs/"), false);
+});
+
+test("designer_ru: detected as known host via detectTrustedVacancyService", () => {
+  const detection = detectTrustedVacancyService("https://designer.ru/u/senior-product-designer/");
+  assert.equal(detection.adapter, "designer_ru");
+  assert.equal(detection.displayName, "Designer.ru");
+  assert.equal(detection.hostname, "designer.ru");
+});
+
+test("designer_ru: invalid path throws for non-vacancy URL shapes", () => {
+  assert.throws(
+    () => detectTrustedVacancyService("https://designer.ru/"),
+    /not supported/u
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://designer.ru/prodesigners/"),
+    /not supported/u
+  );
+  // Subdomain returns generic, not designer_ru
+  const detection = detectTrustedVacancyService("https://www.designer.ru/u/some-role/");
+  assert.equal(detection.adapter, "generic");
+});
+
+test("designer_ru: adapter parses valid vacancy page with JSON-LD, rejects missing and non-vacancy pages", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "designer.ru",
+    displayName: "Designer.ru",
+    adapter: "designer_ru",
+    exampleUrl: "https://designer.ru/u/senior-product-designer/"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        `<!DOCTYPE html><html lang="ru"><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": "Senior Product Designer",
+  "url": "https://designer.ru/u/senior-product-designer/",
+  "description": "<h3>Responsibilities</h3><p>Design and improve product features.</p><h3>Requirements</h3><p>5+ years of experience.</p>",
+  "hiringOrganization": { "@type": "Organization", "name": "TechCorp" },
+  "jobLocation": { "@type": "Place", "address": { "@type": "PostalAddress", "addressLocality": "Moscow", "addressCountry": "Russia" } },
+  "jobLocationType": "TELECOMMUTE",
+  "employmentType": "FULL_TIME"
+}
+</script></head><body><h1>Senior Product Designer</h1><main>Design and improve product features.</main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+
+  const vacancy = await enricher.enrich("https://designer.ru/u/senior-product-designer/", true);
+  assert.equal(vacancy?.parser, "json_ld");
+  assert.equal(vacancy?.title, "Senior Product Designer");
+  assert.equal(vacancy?.company, "TechCorp");
+  assert.equal(vacancy?.location, "Russia");
+  assert.equal(vacancy?.employment, "FULL_TIME");
+  assert.match(vacancy?.text ?? "", /Remote/iu);
+  assert.match(vacancy?.text ?? "", /Product Designer/iu);
+
+  // 404 page rejection
+  const enricher404 = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response("Not found", { status: 404 })
+  });
+  await assert.rejects(() =>
+    enricher404.enrich("https://designer.ru/t/missing-vacancy/", true),
+    /HTTP 404/u
+  );
+
+  // Non-vacancy page (no JSON-LD, no confident HTML content)
+  const enricherNonVacancy = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        "<html><body><h1>About us</h1><p>This is a design community platform.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+  await assert.rejects(() =>
+    enricherNonVacancy.enrich("https://designer.ru/t/about-us/", true),
+    /confident vacancy/u
+  );
+
+  // Temporary network error (503) — should throw generic error
+  const enricher503 = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response("Service unavailable", { status: 503 })
+  });
+  await assert.rejects(() =>
+    enricher503.enrich("https://designer.ru/u/some-role/", true),
+    /HTTP 503/u
+  );
+
+  database.close();
+});
+
+test("designer_ru: oversized response is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "designer.ru",
+    displayName: "Designer.ru",
+    adapter: "designer_ru",
+    exampleUrl: "https://designer.ru/u/senior-product-designer/"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const largeHtml = "x".repeat(config.companyCareersMaxResponseBytes + 1);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(largeHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://designer.ru/u/senior-product-designer/", true),
+    /too large/u
+  );
+
+  database.close();
+});
+
+test("designer_ru: redirect is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "designer.ru",
+    displayName: "Designer.ru",
+    adapter: "designer_ru",
+    exampleUrl: "https://designer.ru/u/senior-product-designer/"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://other.com" } })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://designer.ru/u/some-role/", true),
+    /HTTP 302/u
+  );
+
+  database.close();
+});
+
 

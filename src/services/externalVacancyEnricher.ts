@@ -306,6 +306,7 @@ function htmlFieldValues(description: string, labels: {
 function htmlFallbackParser(service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult["parser"] {
   if (service.adapter === "findmyremote") return "findmyremote";
   if (service.adapter === "finder_work") return "finder_work";
+  if (service.adapter === "designer_ru") return "designer_ru";
   return "html_fallback";
 }
 
@@ -315,7 +316,8 @@ function prefersJsonLdFirst(service: TrustedVacancyServiceRecord): boolean {
     || service.adapter === "aviasales_careers"
     || service.adapter === "cloud_careers"
     || service.adapter === "tbank_careers"
-    || service.adapter === "yandex_jobs";
+    || service.adapter === "yandex_jobs"
+    || service.adapter === "designer_ru";
 }
 
 function fromHtml(url: string, html: string, service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult | null {
