@@ -112,3 +112,128 @@ test("invalid active trusted URL shape stays raw and is not posted as a vacancy"
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
+
+function createIngameJobFixture(html: string, fetchOverride?: () => Promise<Response>) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-ingamejob-ingestor-"));
+  const config = createTestConfig({
+    ownerUserId: "777",
+    ownerChatId: "777",
+    companyCareersRequestDelayMs: 0,
+    databasePath: path.join(tempDir, "bot.db"),
+    databaseUrl: `file:${path.join(tempDir, "bot.db")}`,
+    appDataDir: tempDir,
+    runtimeDir: path.join(tempDir, "runtime")
+  });
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setUserSearchProfileKeywords("777", "required_context", ["remote"]);
+  database.setUserSearchProfileKeywords("777", "required_primary", ["artist"]);
+  const service = database.addTrustedVacancyService({
+    hostname: "ingamejob.com",
+    displayName: "InGame Job",
+    adapter: "ingamejob",
+    exampleUrl: "https://ingamejob.com/en/job/senior-game-character-artist"
+  });
+  database.markTrustedVacancyServiceCheck(service.id, null);
+  database.setTrustedVacancyServiceStatus(service.id, "active", "777");
+  const deliveries: number[] = [];
+  const bot: BotController = {
+    async start() {},
+    async stop() {},
+    async notifyVacancy(vacancy: MatchedVacancyRecord) { deliveries.push(vacancy.id); return true; },
+    async sendVacancyReminder() { return true; },
+    async sendApplicationFollowUp() { return true; },
+    async sendNoNewVacanciesNotification() { return true; },
+    async sendStartupDiagnostic() {},
+    async sendAdminAlert() { return true; },
+    async sendOwnerReport() { return true; }
+  };
+  const analytics = createAnalyticsService(config, database);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: fetchOverride ?? (async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } }))
+  });
+  const ingestor = new VacancyIngestor(config, new VacancyFilter(config), database, bot, analytics, enricher);
+  return { database, analytics, ingestor, deliveries };
+}
+
+test("ingamejob: valid vacancy page enriches and creates vacancy", async () => {
+  const validHtml = `
+    <html><body class="job-view-page">
+      <div class="job-view-lead-position-box">
+        <h1 class="text-success">Senior Game Character Artist</h1>
+        <p><strong><a href="/en/company/renderer-studios">Renderer Studios</a></strong>, Posted 4 days ago</p>
+        Senior, Full time, Negotiable, Remote, Hungary
+      </div>
+      <div class="container job-view-body">
+        <div class="job-view-container">
+          <div class="job-view-single-section">
+            <h5>For which tasks (responsibilities)?</h5>
+            <p>Create high-quality 3D character art for our upcoming AAA title. Work with concept artists and designers to bring characters to life. Develop and maintain character art pipelines.</p>
+            <p>Salary: 5000 USD</p>
+          </div>
+          <div class="job-view-single-section">
+            <h5>Requirements</h5>
+            <p>5+ years experience in game character art required. Expert knowledge of ZBrush, Maya, and Substance Painter.</p>
+            <p>To apply send your CV to careers@renderer-studios.com</p>
+          </div>
+          <div class="job-view-single-section">
+            <h5>Conditions and bonuses</h5>
+            <ul><li>Remote work option</li><li>Flexible schedule</li><li>Competitive salary</li></ul>
+          </div>
+        </div>
+      </div>
+    </body></html>
+  `;
+  const fixture = createIngameJobFixture(validHtml);
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "gamedev",
+    messageId: "ingamejob-1",
+    date: new Date().toISOString(),
+    text: "Senior Game Character Artist\nRemote\nhttps://ingamejob.com/en/job/senior-game-character-artist",
+    url: "https://t.me/gamedev/ingamejob-1"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://ingamejob.com/en/job/senior-game-character-artist");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});
+
+test("ingamejob: missing page prevents posting", async () => {
+  const fixture = createIngameJobFixture("Page not found");
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "gamedev",
+    messageId: "ingamejob-404",
+    date: new Date().toISOString(),
+    text: "Senior Game Character Artist\nRemote\nhttps://ingamejob.com/en/job/missing",
+    url: "https://t.me/gamedev/ingamejob-404"
+  });
+  assert.deepEqual(matched, []);
+  assert.deepEqual(fixture.deliveries, []);
+  assert.equal(fixture.database.listVacanciesSince(7).length, 0);
+  fixture.database.close();
+});
+
+test("ingamejob: temporary network failure keeps Telegram-only vacancy", async () => {
+  const fixture = createIngameJobFixture("", () => Promise.resolve(new Response("temporary failure", { status: 503 })));
+  const matched = await fixture.ingestor.handle({
+    source: "telegram_web_preview",
+    channel: "gamedev",
+    messageId: "ingamejob-503",
+    date: new Date().toISOString(),
+    text: "Senior Game Character Artist\nRemote\nhttps://ingamejob.com/en/job/senior-game-character-artist",
+    url: "https://t.me/gamedev/ingamejob-503"
+  });
+  assert.deepEqual(matched, ["777"]);
+  assert.equal(fixture.deliveries.length, 1);
+  const vacancies = fixture.database.listVacanciesSince(7);
+  assert.equal(vacancies.length, 1);
+  assert.equal(vacancies[0]?.canonicalUrl, "https://ingamejob.com/en/job/senior-game-character-artist");
+  await fixture.analytics.shutdown();
+  fixture.database.close();
+});

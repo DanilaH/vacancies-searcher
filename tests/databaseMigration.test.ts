@@ -254,6 +254,82 @@ test("database migration adds weekly page size to legacy user settings", () => {
   assert.equal(columns.has("daily_digest_time_minutes"), true);
 });
 
+test("database migration adds ingamejob adapter to trusted_vacancy_services", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-legacy-ingamejob-"));
+  const databasePath = path.join(tempDir, "bot.db");
+  const sqlite = new BetterSqlite3(databasePath);
+  // Old CHECK without 'ingamejob'
+  sqlite.exec(`
+    CREATE TABLE trusted_vacancy_services (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hostname TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      parser_mode TEXT NOT NULL,
+      example_url TEXT NOT NULL,
+      last_checked_at TEXT,
+      last_success_at TEXT,
+      last_error TEXT,
+      added_by_user_id TEXT,
+      approved_by_user_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CHECK(adapter IN ('findmyremote', 'teletype', 'finder_work', 'telegraph', 'aviasales_careers', 'cloud_careers', 'tbank_careers', 'yandex_jobs', 'generic')),
+      CHECK(status IN ('pending', 'active', 'disabled')),
+      CHECK(parser_mode IN ('specialized', 'json_ld_or_html'))
+    );
+    INSERT INTO trusted_vacancy_services (hostname, display_name, adapter, status, parser_mode, example_url) VALUES
+      ('old.example.com', 'Old Example', 'generic', 'active', 'json_ld_or_html', 'https://old.example.com/job/1'),
+      ('disabled.example.com', 'Disabled Example', 'generic', 'disabled', 'json_ld_or_html', 'https://disabled.example.com/job/1');
+    -- Simulate a user who manually added ingamejob.com before seed was updated
+    INSERT INTO trusted_vacancy_services (hostname, display_name, adapter, status, parser_mode, example_url) VALUES
+      ('ingamejob.com', 'InGame Job', 'generic', 'active', 'json_ld_or_html', 'https://ingamejob.com/en/job/some-role');
+  `);
+  sqlite.close();
+
+  const database = new VacancyDatabase(
+    createTestConfig({ databasePath, databaseUrl: `file:${databasePath}`, appDataDir: tempDir, runtimeDir: path.join(tempDir, "runtime") })
+  );
+  assert.doesNotThrow(() => database.initialize());
+
+  // Existing records preserved
+  const allServices = database.listTrustedVacancyServicesPage(0, 100).items;
+  const oldExample = allServices.find((s) => s.hostname === "old.example.com");
+  const disabledExample = allServices.find((s) => s.hostname === "disabled.example.com");
+  assert.equal(oldExample?.status, "active");
+  assert.equal(oldExample?.adapter, "generic");
+  assert.equal(disabledExample?.status, "disabled");
+
+  // User-created ingamejob.com record preserved with its status
+  const userIngamejob = allServices.find((s) => s.hostname === "ingamejob.com" && s.status === "active");
+  assert.ok(userIngamejob, "user-created ingamejob.com record should exist");
+  assert.equal(userIngamejob?.adapter, "ingamejob", "adapter should be upgraded to 'ingamejob'");
+  assert.equal(userIngamejob?.status, "active", "user-set status should be preserved");
+
+  // Seed ingamejob.com entry only created if no user record exists (already exists, so no duplicate)
+  const ingamejobEntries = allServices.filter((s) => s.hostname === "ingamejob.com");
+  assert.equal(ingamejobEntries.length, 1, "should not create duplicate entries for ingamejob.com");
+
+  // Re-initialization does not create duplicates (open/close new VacancyDatabase)
+  const database2 = new VacancyDatabase(
+    createTestConfig({ databasePath, databaseUrl: `file:${databasePath}`, appDataDir: tempDir, runtimeDir: path.join(tempDir, "runtime") })
+  );
+  assert.doesNotThrow(() => database2.initialize());
+  const afterReinit = database2.listTrustedVacancyServicesPage(0, 100).items;
+  const ingamejobAfterReinit = afterReinit.filter((s) => s.hostname === "ingamejob.com");
+  assert.equal(ingamejobAfterReinit.length, 1, "re-init should not create duplicates");
+
+  // Verify the new adapter is accepted by CHECK constraint
+  const migratedSqlite = new BetterSqlite3(databasePath, { readonly: true });
+  const row = migratedSqlite.prepare("SELECT adapter FROM trusted_vacancy_services WHERE hostname = 'ingamejob.com'").get() as { adapter: string };
+  assert.equal(row.adapter, "ingamejob");
+
+  migratedSqlite.close();
+  database2.close();
+  database.close();
+});
+
 test("fresh schema includes daily digest delivery state table", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-digest-schema-"));
   const databasePath = path.join(tempDir, "bot.db");

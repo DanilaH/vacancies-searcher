@@ -42,7 +42,7 @@ Implemented and working at code level:
 - Trusted vacancy services admin section.
 - Multi-vacancy split for structured Telegram aggregator posts.
 - External enrichment from active trusted services.
-- Built-in specialized adapters for FindMyRemote, Teletype, Finder Work, and Telegraph.
+- Built-in specialized adapters for FindMyRemote, Teletype, Finder Work, Telegraph, and InGame Job.
 - Repair script for old multi-vacancy posts.
 - Local analytics in SQLite and optional PostHog forwarding.
 - Automatic backup and technical data cleanup.
@@ -77,7 +77,6 @@ Pending because generic parser did not confidently parse the sample:
 
 - `career.sonderads.com`
 - `designer.ru`
-- `ingamejob.com`
 - `itcharm.com`
 - `job.alfabank.ru`
 - `job.megafon.ru`

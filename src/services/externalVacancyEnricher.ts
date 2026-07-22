@@ -205,6 +205,52 @@ function fromTeletype(url: string, html: string): ExternalVacancyEnrichmentResul
   };
 }
 
+function fromIngameJob(url: string, html: string): ExternalVacancyEnrichmentResult | null {
+  const $ = load(html);
+  const pageText = normalizeReadableText($("body").text());
+
+  if (isMissingPageContent(pageText)) {
+    throw new ExternalVacancyEnrichmentError("InGameJob page does not exist or is no longer available.", true);
+  }
+
+  if (!$("body.job-view-page").length) {
+    return null;
+  }
+
+  const title = $("h1.text-success").first().text().trim() || null;
+  const description = longestTextFromSelectors(html, [
+    ".job-view-body",
+    ".job-view-container",
+    ".main-container"
+  ]);
+
+  if (!title || !hasConfidentVacancyContent(title, description)) {
+    return null;
+  }
+
+  const companyLink = $(".job-view-lead-position-box strong a").first();
+  const company = companyLink.length ? companyLink.text().trim() : null;
+  const leadBoxText = $(".job-view-lead-position-box").text();
+
+  return {
+    url,
+    title,
+    company,
+    location: null,
+    employment: null,
+    parser: "ingamejob",
+    warnings: [],
+    text: buildText({
+      title,
+      company,
+      location: null,
+      employment: null,
+      remote: /\bremote\b|удал[её]н/iu.test(description) || /\bremote\b/iu.test(leadBoxText),
+      description
+    })
+  };
+}
+
 function fromTelegraph(url: string, html: string): ExternalVacancyEnrichmentResult | null {
   const $ = load(html);
   const title = $("article h1").first().text().trim()
@@ -278,6 +324,9 @@ function fromHtml(url: string, html: string, service: TrustedVacancyServiceRecor
   }
   if (service.adapter === "telegraph") {
     return fromTelegraph(url, html);
+  }
+  if (service.adapter === "ingamejob") {
+    return fromIngameJob(url, html);
   }
   const $ = load(html);
   const title = $("h1").first().text().trim() || $("meta[property='og:title']").attr("content")?.trim() || null;

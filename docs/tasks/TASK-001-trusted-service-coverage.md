@@ -108,7 +108,7 @@ Can run in parallel with:
 Recommended order:
 
 1. Probe and add small adapters for remaining pending sites that generic parsing missed:
-   - `ingamejob.com`
+   - ~~`ingamejob.com`~~ (dedicated adapter added as built-in, seeded pending)
    - `designer.ru`
    - `job.mts.ru`
    - `rabota.sber.ru`

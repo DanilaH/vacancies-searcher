@@ -102,6 +102,7 @@ export type TrustedVacancyServiceAdapter =
   | "cloud_careers"
   | "tbank_careers"
   | "yandex_jobs"
+  | "ingamejob"
   | "generic";
 export type TrustedVacancyServiceStatus = "pending" | "active" | "disabled";
 export type TrustedVacancyServiceParserMode = "specialized" | "json_ld_or_html";
@@ -137,7 +138,7 @@ export interface ExternalVacancyEnrichmentResult {
   company: string | null;
   location: string | null;
   employment: string | null;
-  parser: "findmyremote" | "teletype" | "finder_work" | "telegraph" | "json_ld" | "html_fallback";
+  parser: "findmyremote" | "teletype" | "finder_work" | "telegraph" | "ingamejob" | "json_ld" | "html_fallback";
   warnings: string[];
 }
 
