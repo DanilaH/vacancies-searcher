@@ -349,7 +349,7 @@ function createMtsJobsFixture(html: string, fetchOverride?: () => Promise<Respon
     hostname: "job.mts.ru",
     displayName: "MTS Jobs",
     adapter: "mts_jobs",
-    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+    exampleUrl: "https://job.mts.ru/vacancy/48692116070620824"
   });
   database.markTrustedVacancyServiceCheck(service.id, null);
   database.setTrustedVacancyServiceStatus(service.id, "active", "777");
@@ -382,14 +382,14 @@ test("mts_jobs: valid vacancy page enriches and creates vacancy", async () => {
     channel: "itjobs",
     messageId: "mts-jobs-1",
     date: new Date().toISOString(),
-    text: "Системный аналитик\nRemote\nhttps://job.mts.ru/vacancy/506844733251780696",
+    text: "Системный аналитик\nRemote\nhttps://job.mts.ru/vacancy/48692116070620824",
     url: "https://t.me/itjobs/mts-jobs-1"
   });
   assert.deepEqual(matched, ["777"]);
   assert.equal(fixture.deliveries.length, 1);
   const vacancies = fixture.database.listVacanciesSince(7);
   assert.equal(vacancies.length, 1);
-  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/506844733251780696");
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/48692116070620824");
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
@@ -450,14 +450,14 @@ test("mts_jobs: temporary network failure keeps Telegram-only vacancy", async ()
     channel: "itjobs",
     messageId: "mts-jobs-503",
     date: new Date().toISOString(),
-    text: "Системный аналитик\nRemote Финтех\nhttps://job.mts.ru/vacancy/506844733251780696",
+    text: "Системный аналитик\nRemote Финтех\nhttps://job.mts.ru/vacancy/48692116070620824",
     url: "https://t.me/itjobs/mts-jobs-503"
   });
   assert.deepEqual(matched, ["777"]);
   assert.equal(fixture.deliveries.length, 1);
   const vacancies = fixture.database.listVacanciesSince(7);
   assert.equal(vacancies.length, 1);
-  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/506844733251780696");
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/48692116070620824");
   await fixture.analytics.shutdown();
   fixture.database.close();
 });

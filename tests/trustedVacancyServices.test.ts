@@ -791,7 +791,7 @@ test("mts_jobs: adapter parses valid vacancy page with Product JSON-LD, rejects 
     hostname: "job.mts.ru",
     displayName: "MTS Jobs",
     adapter: "mts_jobs",
-    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+    exampleUrl: "https://job.mts.ru/vacancy/48692116070620824"
   });
   database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
 
@@ -805,7 +805,7 @@ test("mts_jobs: adapter parses valid vacancy page with Product JSON-LD, rejects 
       })
   });
 
-  const vacancy = await enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true);
+  const vacancy = await enricher.enrich("https://job.mts.ru/vacancy/48692116070620824", true);
   assert.equal(vacancy?.parser, "mts_jobs");
   assert.equal(vacancy?.title, "Системный аналитик");
   assert.equal(vacancy?.company, "ПАО МТС-Банк");
@@ -894,7 +894,7 @@ test("mts_jobs: oversized response is rejected", async () => {
     hostname: "job.mts.ru",
     displayName: "MTS Jobs",
     adapter: "mts_jobs",
-    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+    exampleUrl: "https://job.mts.ru/vacancy/48692116070620824"
   });
   database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
 
@@ -909,7 +909,7 @@ test("mts_jobs: oversized response is rejected", async () => {
   });
 
   await assert.rejects(() =>
-    enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true),
+    enricher.enrich("https://job.mts.ru/vacancy/48692116070620824", true),
     /too large/u
   );
 
@@ -922,7 +922,7 @@ test("mts_jobs: redirect is rejected", async () => {
     hostname: "job.mts.ru",
     displayName: "MTS Jobs",
     adapter: "mts_jobs",
-    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+    exampleUrl: "https://job.mts.ru/vacancy/48692116070620824"
   });
   database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
 
@@ -932,7 +932,7 @@ test("mts_jobs: redirect is rejected", async () => {
   });
 
   await assert.rejects(() =>
-    enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true),
+    enricher.enrich("https://job.mts.ru/vacancy/48692116070620824", true),
     /HTTP 302/u
   );
 
