@@ -23,8 +23,9 @@ https://rabota.sber.ru/vacancy/customer-journey-expert/
 
 ## HTTP statuses for existing vs missing
 
-- **Active** (`/vacancy/{valid-slug}/`): HTTP 200, `page: "/[directory]/[alias]"` in `__NEXT_DATA__`, `pageProps.data.head` contains SEO meta tags.
-- **Missing** (`/vacancy/{invalid-slug}/`): HTTP 404, `page: "/404"`, `pageProps: {}`, `og:title: "Работа в Сбере"`.
+- **Active** (`/vacancy/{valid-slug}/`): returned HTTP 200 from the executor's probe environment on 2026-07-22, with `page: "/[directory]/[alias]"` in `__NEXT_DATA__` and SEO meta tags in `pageProps.data.head`.
+- **Missing** (`/vacancy/{invalid-slug}/`): returned HTTP 404 in the same environment, with `page: "/404"`, `pageProps: {}`, and `og:title: "Работа в Сбере"`.
+- **Independent availability check**: another public fetch environment returned HTTP 403 for the active URL. Access can therefore vary by region, CDN edge, or anti-bot policy. The URL must not be treated as guaranteed to return 200 from every runtime; this instability is an additional reason not to add a production adapter.
 
 ## Exact allowed URL shape
 
