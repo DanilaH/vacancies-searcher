@@ -839,6 +839,24 @@ test("mts_jobs: adapter parses valid vacancy page with Product JSON-LD, rejects 
     /confident vacancy/u
   );
 
+  // CDN variants may retain InStock JSON-LD while rendering an explicit archive marker.
+  const conflictingArchiveHtml = archivedHtml.replace(
+    "https://schema.org/OutOfStock",
+    "https://schema.org/InStock"
+  );
+  const enricherConflictingArchive = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(conflictingArchiveHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+  await assert.rejects(() =>
+    enricherConflictingArchive.enrich("https://job.mts.ru/vacancy/648199108112156868", true),
+    /confident vacancy/u
+  );
+
   // Non-vacancy page (no Product JSON-LD, no confident HTML content)
   const enricherNonVacancy = new ExternalVacancyEnricher(config, database, {
     assertSafeUrl: async (url) => url,
