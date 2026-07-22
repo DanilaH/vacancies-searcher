@@ -343,13 +343,13 @@ function createMtsJobsFixture(html: string, fetchOverride?: () => Promise<Respon
   });
   const database = new VacancyDatabase(config);
   database.initialize();
-  database.setUserSearchProfileKeywords("777", "required_context", ["ai"]);
-  database.setUserSearchProfileKeywords("777", "required_primary", ["engineer"]);
+  database.setUserSearchProfileKeywords("777", "required_context", ["финтех"]);
+  database.setUserSearchProfileKeywords("777", "required_primary", ["аналитик"]);
   const service = database.addTrustedVacancyService({
     hostname: "job.mts.ru",
     displayName: "MTS Jobs",
     adapter: "mts_jobs",
-    exampleUrl: "https://job.mts.ru/vacancy/648199108112156868"
+    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
   });
   database.markTrustedVacancyServiceCheck(service.id, null);
   database.setTrustedVacancyServiceStatus(service.id, "active", "777");
@@ -375,38 +375,21 @@ function createMtsJobsFixture(html: string, fetchOverride?: () => Promise<Respon
 }
 
 test("mts_jobs: valid vacancy page enriches and creates vacancy", async () => {
-  const validHtml = `<!DOCTYPE html><html lang="ru"><head>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "Product",
-      "name": "Senior AI Engineer [KION GenAI]",
-      "description": "<p>Разработка и внедрение AI-решений.</p>",
-      "brand": "МТС",
-      "offers": {
-        "@type": "Offer",
-        "price": "з/п по договоренности"
-      }
-    }
-  ]
-}
-</script></head><body><h1>Senior AI Engineer [KION GenAI]</h1><main>SPA placeholder</main></body></html>`;
+  const validHtml = fs.readFileSync(path.join(__dirname, "fixtures/mts-jobs-active.html"), "utf-8");
   const fixture = createMtsJobsFixture(validHtml);
   const matched = await fixture.ingestor.handle({
     source: "telegram_web_preview",
     channel: "itjobs",
     messageId: "mts-jobs-1",
     date: new Date().toISOString(),
-    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
+    text: "Системный аналитик\nRemote\nhttps://job.mts.ru/vacancy/506844733251780696",
     url: "https://t.me/itjobs/mts-jobs-1"
   });
   assert.deepEqual(matched, ["777"]);
   assert.equal(fixture.deliveries.length, 1);
   const vacancies = fixture.database.listVacanciesSince(7);
   assert.equal(vacancies.length, 1);
-  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/648199108112156868");
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/506844733251780696");
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
@@ -444,31 +427,14 @@ test("mts_jobs: HTTP 410 prevents posting", async () => {
 });
 
 test("mts_jobs: archived page (200 with OutOfStock) prevents posting", async () => {
-  const archivedHtml = `<!DOCTYPE html><html lang="ru"><head>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "Product",
-      "name": "Senior AI Engineer [KION GenAI]",
-      "description": "<p>Разработка AI-решений.</p>",
-      "brand": "МТС",
-      "offers": {
-        "@type": "Offer",
-        "availability": "https://schema.org/OutOfStock"
-      }
-    }
-  ]
-}
-</script></head><body><h1>Senior AI Engineer [KION GenAI]</h1><main>Archived</main></body></html>`;
+  const archivedHtml = fs.readFileSync(path.join(__dirname, "fixtures/mts-jobs-archived.html"), "utf-8");
   const fixture = createMtsJobsFixture(archivedHtml);
   const matched = await fixture.ingestor.handle({
     source: "telegram_web_preview",
     channel: "itjobs",
     messageId: "mts-jobs-archived",
     date: new Date().toISOString(),
-    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/archived-123",
+    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
     url: "https://t.me/itjobs/mts-jobs-archived"
   });
   assert.deepEqual(matched, []);
@@ -484,14 +450,14 @@ test("mts_jobs: temporary network failure keeps Telegram-only vacancy", async ()
     channel: "itjobs",
     messageId: "mts-jobs-503",
     date: new Date().toISOString(),
-    text: "Senior AI Engineer\nRemote\nhttps://job.mts.ru/vacancy/648199108112156868",
+    text: "Системный аналитик\nRemote Финтех\nhttps://job.mts.ru/vacancy/506844733251780696",
     url: "https://t.me/itjobs/mts-jobs-503"
   });
   assert.deepEqual(matched, ["777"]);
   assert.equal(fixture.deliveries.length, 1);
   const vacancies = fixture.database.listVacanciesSince(7);
   assert.equal(vacancies.length, 1);
-  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/648199108112156868");
+  assert.equal(vacancies[0]?.canonicalUrl, "https://job.mts.ru/vacancy/506844733251780696");
   await fixture.analytics.shutdown();
   fixture.database.close();
 });
