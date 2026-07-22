@@ -708,32 +708,47 @@ test("backoff delay grows via scheduler and does not exceed 6h max", async () =>
   const baseTime = Date.parse("2026-07-23T08:00:00Z");
   database.enqueuePendingNotification("777", v.id, new Date(baseTime).toISOString());
 
+  const sixHoursMs = 6 * 60 * 60_000;
+  const expectedDelaysMs = [
+    5 * 60_000,    // retry 0: 5 min
+    10 * 60_000,   // retry 1: 10 min
+    20 * 60_000,   // retry 2: 20 min
+    40 * 60_000,   // retry 3: 40 min
+    80 * 60_000,   // retry 4: 80 min
+    160 * 60_000,  // retry 5: 160 min
+    320 * 60_000,  // retry 6: 320 min (uncapped would be 320)
+    360 * 60_000,  // retry 7: capped at 6h = 360 min
+    360 * 60_000   // retry 8: capped at 6h = 360 min
+  ];
+
   let callCount = 0;
   const scheduler = new PendingNotificationScheduler(database, async () => {
     callCount++;
     return false;
   });
 
-  // Run 9 cycles. Each cycle advances by (6h + 1s) to guarantee the item is always due.
-  // This lets us observe exponential growth up to the 6h cap.
-  const sixHoursMs = 6 * 60 * 60_000;
-  for (let i = 0; i < 9; i++) {
-    const now = new Date(baseTime + i * (sixHoursMs + 1000));
+  let now = new Date(baseTime);
+
+  for (let i = 0; i < expectedDelaysMs.length; i++) {
     await scheduler.runDueCycle(now);
+    assert.equal(callCount, i + 1, `Delivery attempt ${i + 1} made`);
+
+    const row = sqlite.prepare("SELECT retry_count, scheduled_at FROM pending_notification_queue").get() as { retry_count: number; scheduled_at: string };
+    assert.equal(row.retry_count, i + 1, `retry_count = ${i + 1}`);
+
+    const actualDelay = Date.parse(row.scheduled_at) - now.getTime();
+    assert.ok(
+      Math.abs(actualDelay - expectedDelaysMs[i]) < 5000,
+      `Cycle ${i}: expected delay ${expectedDelaysMs[i]}ms, got ${actualDelay}ms`
+    );
+
+    // Verify no delay exceeds 6 hours
+    assert.ok(actualDelay <= sixHoursMs + 1000,
+      `Cycle ${i}: delay ${actualDelay}ms must not exceed 6h cap (${sixHoursMs}ms)`);
+
+    // Advance now past the scheduled time for next cycle
+    now = new Date(Date.parse(row.scheduled_at) + 1000);
   }
-  assert.equal(callCount, 9, "9 delivery attempts made");
-
-  const row = sqlite.prepare("SELECT retry_count, scheduled_at FROM pending_notification_queue").get() as { retry_count: number; scheduled_at: string };
-  assert.equal(row.retry_count, 9);
-
-  // After 9 failures, total expected delay before cap: sum of min(5min*2^i, 6h) for i=0..8
-  // i=0:5min, i=1:10min, i=2:20min, i=3:40min, i=4:80min, i=5:160min, i=6:320min→capped at 360min, i=7:360min, i=8:360min
-  // Total: 5+10+20+40+80+160+360+360+360 = 1395 min = 23.25h
-  // scheduled_at should be >= base + 23.25h
-  const totalCappedDelayMs = (5 + 10 + 20 + 40 + 80 + 160 + 360 + 360 + 360) * 60_000;
-  const actualScheduledAt = Date.parse(row.scheduled_at);
-  assert.ok(actualScheduledAt >= baseTime + totalCappedDelayMs - 5000,
-    `scheduled_at ${new Date(actualScheduledAt).toISOString()} should be near base + 23.25h`);
 
   sqlite.close();
   database.close();
@@ -981,6 +996,7 @@ test("single now value used for both quiet hours check and scheduledAt computati
     url: "https://t.me/ch-clock/m-clock"
   });
 
+  assert.equal(callCount, 1, "Clock called exactly once for the matched user");
   assert.deepEqual(result, ["777"], "User matched");
   const queueItems = fixture.database.listDuePendingNotifications("3026-07-23T08:00:00.000Z");
   assert.equal(queueItems.length, 1, "One item enqueued");
