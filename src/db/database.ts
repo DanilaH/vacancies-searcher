@@ -2641,8 +2641,18 @@ export class VacancyDatabase {
     return rows.map((row) => mapVacancy(row));
   }
 
-  listFuzzyMatchCandidates(vacancyId: number, days: number, limit = 200): VacancyRecord[] {
+  listFuzzyMatchCandidates(vacancyId: number, days: number, limit = 200, titleTokens?: string[]): VacancyRecord[] {
     const since = recentThresholdIso(days);
+    const tokenClause = titleTokens && titleTokens.length > 0
+      ? `AND (${titleTokens.map(() => "title LIKE ?").join(" OR ")})`
+      : "";
+    const params: (string | number)[] = [since, vacancyId];
+    if (titleTokens && titleTokens.length > 0) {
+      for (const token of titleTokens) {
+        params.push(`%${token}%`);
+      }
+    }
+    params.push(limit);
     const rows = this.getDb()
       .prepare(
         `
@@ -2650,11 +2660,12 @@ export class VacancyDatabase {
           FROM vacancies
           WHERE message_date >= ?
             AND id != ?
+            ${tokenClause}
           ORDER BY message_date DESC, id DESC
           LIMIT ?
         `
       )
-      .all(since, vacancyId, limit) as VacancyRow[];
+      .all(...params) as VacancyRow[];
 
     return rows.map((row) => mapVacancy(row));
   }
@@ -2872,6 +2883,55 @@ export class VacancyDatabase {
         `
       )
       .run(first, second, score, JSON.stringify(reasons));
+  }
+
+  getFuzzyGroupVacancyIds(vacancyId: number): number[] {
+    const db = this.getDb();
+    const seen = new Set<number>();
+    let queue = [vacancyId];
+    while (queue.length > 0) {
+      const ids = db
+        .prepare(
+          `
+            SELECT vacancy_id, duplicate_vacancy_id
+            FROM vacancy_fuzzy_duplicates
+            WHERE vacancy_id IN (${queue.map(() => "?").join(",")})
+               OR duplicate_vacancy_id IN (${queue.map(() => "?").join(",")})
+          `
+        )
+        .all(...queue, ...queue) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+      const next: number[] = [];
+      for (const row of ids) {
+        for (const id of [row.vacancy_id, row.duplicate_vacancy_id]) {
+          if (!seen.has(id)) {
+            seen.add(id);
+            next.push(id);
+          }
+        }
+      }
+      queue = next;
+    }
+    return [...seen];
+  }
+
+  getFuzzyGroupRootId(vacancyId: number): number {
+    const ids = this.getFuzzyGroupVacancyIds(vacancyId);
+    return ids.length > 0 ? Math.min(...ids) : vacancyId;
+  }
+
+  hasUserMatchedAnyVacancy(userId: string, vacancyIds: number[]): boolean {
+    if (vacancyIds.length === 0) return false;
+    const row = this.getDb()
+      .prepare(
+        `
+          SELECT 1 AS found
+          FROM user_vacancy_matches
+          WHERE user_id = ? AND vacancy_id IN (${vacancyIds.map(() => "?").join(",")})
+          LIMIT 1
+        `
+      )
+      .get(userId, ...vacancyIds) as { found: number } | undefined;
+    return row !== undefined;
   }
 
   listRecentRawMessageTexts(days: number, limit = 500): string[] {

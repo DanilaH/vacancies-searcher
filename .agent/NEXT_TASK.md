@@ -4,28 +4,49 @@ Current branch: `feature/fuzzy-vacancy-dedup` (PR #19)
 
 ## What's Done
 
-### Fuzzy Vacancy Dedup (PR #19)
-- `src/services/vacancyFuzzyMatcher.ts` — core service: Dice coefficient, feature extraction (company, seniority, salary, location, remote), scoring with confirmatory-signal gate
-- Scoring rewritten: requires ≥1 strong confirmatory signal; unknown attributes no longer award partial score; company-only matches with low title similarity (<0.70) are rejected
-- Ingestor restructured: `findAndRecordFuzzyDuplicate` runs before `matchVacancyForEligibleUsers`, returns `number | null`, skips match/notify on hit
-- `src/db/database.ts`: `listFuzzyMatchCandidates` (indexed LIMIT query), `recordVacancyFuzzyDuplicate` (ordered INSERT OR IGNORE), `listVacancyDuplicatePosts` updated to UNION fuzzy sources
-- `src/db/schema.ts`: `vacancy_fuzzy_duplicates` table
-- `src/types.ts`: `AnalyticsEventName` includes `vacancy_fuzzy_duplicate_found`
-- 14 unit tests for fuzzy matcher (4 shouldConsiderFuzzyMatch + 10 computeFuzzyMatch) — all pass
-- 2 integration tests (full pipeline via VacancyIngestor with real temp DB) — all pass
-- 566/566 full suite pass, typecheck clean, build clean
+All 5 review blocks are resolved:
 
-### All 4 Review Blocks Addressed
-1. ~~Fuzzy check ran too late~~ — **fixed**: runs before matching
-2. ~~Scoring merged by common profession without confirmatory signals~~ — **fixed**: requires ≥1 confirmatory signal, unknown attribs no longer score, company-only + low titleSim rejected
-3. Missing integration tests — **fixed**: 2 integration tests added
-4. ~~Candidate query loaded all vacancies~~ — **fixed**: `listFuzzyMatchCandidates` uses LIMIT
+### 1. Per-user fuzzy dedup (Issue 1)
+- Fuzzy duplicate no longer blocks matching for all users
+- `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null` with `groupVacancyIds`
+- `matchVacancyForEligibleUsers` accepts optional `fuzzyGroupVacancyIds`; skips users who already matched any vacancy in the group
+- `database.hasUserMatchedAnyVacancy(userId, vacancyIds)` — efficient LIMIT 1 query
 
-## Next Possible Steps
+### 2. Fuzzy chain / root linking (Issue 2)
+- New fuzzy links are created against the root (oldest ID) of the candidate's fuzzy group
+- `database.getFuzzyGroupRootId(vacancyId)` — min ID in connected component
+- `database.getFuzzyGroupVacancyIds(vacancyId)` — transitive BFS closure
+- `listVacancyDuplicatePosts` UNIONs fuzzy sources → root card shows all group members
 
-1. Update PR #19 description with final test counts and verification results; do not merge yet
-2. Request code review from PR reviewers
-3. After merge: update AGENTS.md, CURRENT_STATE.md with final fuzzy dedup feature
+### 3. Regression tests (Issue 3)
+- 9 integration tests covering: per-user dedup, chain linking, fingerprint coexistence, raw record preservation, duplicate match prevention, status/feedback/reminder integrity, source listing
+- All use real production components (DB, VacancyIngestor, BotController)
+
+### 4. Candidate pre-filtering (Issue 4)
+- `listFuzzyMatchCandidates` accepts `titleTokens?: string[]` for SQL `LIKE` pre-filtering
+- `findAndRecordFuzzyDuplicate` extracts top 5 significant tokens from title
+- `idx_vacancies_message_date` index added to schema migrations
+- Exclude words list mirrors `vacancyFuzzyMatcher`'s `EXCLUDE_TITLE_WORDS`
+
+### 5. Verification
+- **575/575 tests pass** (18 unit + 2 integration + 9 regression for fuzzy, rest unchanged)
+- `npx tsc` — clean
+- `npm run build` — clean
+
+## Next Steps
+
+1. Check PR merge status and update description
+2. Request final review from PR reviewers
+3. Do not merge
+
+## Changed Files
+
+- `src/db/database.ts` — `getFuzzyGroupVacancyIds`, `getFuzzyGroupRootId`, `hasUserMatchedAnyVacancy`; `listFuzzyMatchCandidates` accepts `titleTokens`; `recordVacancyFuzzyDuplicate` unchanged
+- `src/db/schema.ts` — `idx_vacancies_message_date` index
+- `src/services/vacancyIngestor.ts` — `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null`, links to root; `matchVacancyForEligibleUsers` accepts `fuzzyGroupVacancyIds`; `handle` no longer skips matching entirely
+- `tests/vacancyFuzzyRegression.test.ts` — 9 integration tests
+- `tests/vacancyFuzzyIngestion.test.ts` — 2 integration tests (unchanged)
+- `tests/vacancyFuzzyMatcher.test.ts` — 14 unit tests (unchanged)
 
 ## Verification
 

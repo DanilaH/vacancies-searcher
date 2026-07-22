@@ -635,6 +635,7 @@ function ensureVacanciesColumns(db: SqliteDatabase): void {
   }
 
   db.prepare("CREATE INDEX IF NOT EXISTS idx_vacancies_canonical_url ON vacancies(canonical_url)").run();
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_vacancies_message_date ON vacancies(message_date)").run();
 }
 
 function ensureMonitoredChannelsColumns(db: SqliteDatabase): void {

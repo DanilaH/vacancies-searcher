@@ -15,9 +15,22 @@ import { computeFuzzyMatch, shouldConsiderFuzzyMatch } from "./vacancyFuzzyMatch
 
 const TRUSTED_URL_SHAPE_REJECTION = "Trusted vacancy URL shape is not supported for this service.";
 
+const EXCLUDE_FUZZY_TOKEN_WORDS = new Set([
+  "вакансия", "vacancy", "work", "job", "работа", "на работу",
+  "требуется", "требуются", "нужен", "нужна", "нужны", "ищем",
+  "открыта", "открыт", "открыты", "в компанию", "в команду",
+  "hiring", "we are", "looking", "join",
+  "прямой", "без", "опыт"
+]);
+
 type TrustedVacancyUrlResolution = {
   canonicalUrl: string | null;
   definitiveRejection: string | null;
+};
+
+type FuzzyDuplicateGroup = {
+  duplicateVacancyId: number;
+  groupVacancyIds: number[];
 };
 
 export class VacancyIngestor {
@@ -69,22 +82,24 @@ export class VacancyIngestor {
     );
 
     if (result.kind === "new_vacancy") {
-      const fuzzyDuplicateId = this.findAndRecordFuzzyDuplicate(result.vacancy);
+      const fuzzyGroup = this.findAndRecordFuzzyDuplicate(result.vacancy);
 
-      if (fuzzyDuplicateId !== null) {
+      if (fuzzyGroup) {
         logger.info(
           {
             source: result.vacancy.sourceName,
             channel: result.vacancy.sourceChannel,
             messageId: result.vacancy.sourceMessageId,
-            duplicateVacancyId: fuzzyDuplicateId
+            duplicateVacancyId: fuzzyGroup.duplicateVacancyId,
+            groupSize: fuzzyGroup.groupVacancyIds.length
           },
-          "New vacancy is a fuzzy duplicate; skipping user matching."
+          "New vacancy is a fuzzy duplicate; running per-user dedup matching."
         );
-        return [];
       }
 
-      const matchedUserIds = await this.matchVacancyForEligibleUsers(enrichedItem, result.vacancy);
+      const matchedUserIds = await this.matchVacancyForEligibleUsers(
+        enrichedItem, result.vacancy, fuzzyGroup?.groupVacancyIds
+      );
 
       logger.info(
         {
@@ -207,7 +222,9 @@ export class VacancyIngestor {
     }
   }
 
-  private async matchVacancyForEligibleUsers(item: RawVacancyItem, vacancy: VacancyRecord): Promise<string[]> {
+  private async matchVacancyForEligibleUsers(
+    item: RawVacancyItem, vacancy: VacancyRecord, fuzzyGroupVacancyIds?: number[]
+  ): Promise<string[]> {
     const eligibleUserIds = item.eligibleUserIds
       ? new Set(item.eligibleUserIds.map((userId) => String(userId)))
       : null;
@@ -218,6 +235,14 @@ export class VacancyIngestor {
     const matchedUserIds: string[] = [];
 
     for (const user of users) {
+      if (fuzzyGroupVacancyIds && this.database.hasUserMatchedAnyVacancy(user.userId, fuzzyGroupVacancyIds)) {
+        logger.debug(
+          { userId: user.userId, vacancyId: vacancy.id, groupVacancyIds: fuzzyGroupVacancyIds },
+          "User already matched a vacancy in this fuzzy group; skipping."
+        );
+        continue;
+      }
+
       if (eligibleUserIds) {
         this.database.recordHhVacancyCandidate(user.userId, vacancy.id, item.sourceQueryKey ?? "hh_api");
       }
@@ -275,8 +300,17 @@ export class VacancyIngestor {
     return matchedUserIds;
   }
 
-  private findAndRecordFuzzyDuplicate(vacancy: VacancyRecord): number | null {
-    const candidates = this.database.listFuzzyMatchCandidates(vacancy.id, 30, 200);
+  private extractTitleTokens(title: string): string[] {
+    const tokens = title
+      .toLowerCase()
+      .split(/[\s,.:;!?()\[\]{}|/–—\-]+/u)
+      .filter((t) => t.length > 2 && !EXCLUDE_FUZZY_TOKEN_WORDS.has(t));
+    return [...new Set(tokens)].slice(0, 5);
+  }
+
+  private findAndRecordFuzzyDuplicate(vacancy: VacancyRecord): FuzzyDuplicateGroup | null {
+    const titleTokens = this.extractTitleTokens(vacancy.title);
+    const candidates = this.database.listFuzzyMatchCandidates(vacancy.id, 30, 200, titleTokens);
     for (const candidate of candidates) {
       if (!shouldConsiderFuzzyMatch(vacancy, candidate)) {
         continue;
@@ -285,19 +319,22 @@ export class VacancyIngestor {
       if (!match.isMatch) {
         continue;
       }
-      this.database.recordVacancyFuzzyDuplicate(vacancy.id, candidate.id, match.score, match.reasons);
+      const rootId = this.database.getFuzzyGroupRootId(candidate.id);
+      this.database.recordVacancyFuzzyDuplicate(vacancy.id, rootId, match.score, match.reasons);
+      const groupIds = this.database.getFuzzyGroupVacancyIds(vacancy.id);
       this.analytics.capture({
         eventName: "vacancy_fuzzy_duplicate_found" as AnalyticsEventName,
         distinctId: "system",
         properties: {
           vacancy_id: vacancy.id,
-          duplicate_vacancy_id: candidate.id,
+          duplicate_vacancy_id: rootId,
           score: match.score,
           reasons: match.reasons.join("; "),
           source_name: vacancy.sourceName,
           duplicate_source_name: candidate.sourceName,
           source_channel: vacancy.sourceChannel,
-          duplicate_source_channel: candidate.sourceChannel
+          duplicate_source_channel: candidate.sourceChannel,
+          group_size: groupIds.length
         }
       }).catch((error: unknown) => {
         logger.warn({ err: error }, "Failed to capture fuzzy duplicate analytics.");
@@ -305,13 +342,15 @@ export class VacancyIngestor {
       logger.info(
         {
           vacancyId: vacancy.id,
-          duplicateVacancyId: candidate.id,
+          duplicateVacancyId: rootId,
+          matchedCandidateId: candidate.id,
           score: match.score,
-          reasons: match.reasons
+          reasons: match.reasons,
+          groupSize: groupIds.length
         },
         "Fuzzy duplicate link created."
       );
-      return candidate.id;
+      return { duplicateVacancyId: rootId, groupVacancyIds: groupIds };
     }
     return null;
   }

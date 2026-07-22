@@ -138,10 +138,12 @@ Known from recent work:
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
 - Broad-domain adapters/path guards exist for safe shapes on `www.aviasales.ru`, `cloud.ru`, `www.tbank.ru`, and `yandex.ru`, but they are not seeded as active built-ins.
 
-- Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). 14 unit tests + 2 integration tests pass.
-- Ingestor (`vacancyIngestor.ts`) calls `findAndRecordFuzzyDuplicate` after recording a new vacancy but before `matchVacancyForEligibleUsers`. On fuzzy hit, the new vacancy is linked and matching/notification is skipped.
-- DB methods: `listFuzzyMatchCandidates(vacancyId, days, limit)` — indexed query, `recordVacancyFuzzyDuplicate` — ordered INSERT OR IGNORE, `listVacancyDuplicatePosts` — UNIONs fuzzy sources.
+- Fuzzy vacancy dedup via `vacancyFuzzyMatcher.ts`: Dice coefficient + feature extraction scoring with confirmatory signals. Runs in ingestor before user matching. Requires ≥1 strong confirmatory signal beyond title+time (company, seniority, salary, location). Company-only matches with titleSim < 0.70 are rejected. 18 unit tests + 11 integration tests pass.
+- Ingestor (`vacancyIngestor.ts`): `findAndRecordFuzzyDuplicate` returns `FuzzyDuplicateGroup | null` with `groupVacancyIds`. On fuzzy hit, the new vacancy is linked to the root of the group. Matching runs normally but skips users who already matched any vacancy in the group. This prevents both matching loss (users who didn't match the first variant can still match the second) and duplicate notifications.
+- Root linking: new fuzzy duplicates are always linked to the root (min ID) of the candidate's fuzzy group via `getFuzzyGroupRootId`. Transitive group queries via `getFuzzyGroupVacancyIds` (BFS closure). `listVacancyDuplicatePosts` UNIONs fuzzy sources → root card shows all group members.
+- DB methods: `listFuzzyMatchCandidates(vacancyId, days, limit, titleTokens?)` — indexed query with optional LIKE pre-filter by title tokens; `recordVacancyFuzzyDuplicate` — ordered INSERT OR IGNORE; `getFuzzyGroupVacancyIds`, `getFuzzyGroupRootId`, `hasUserMatchedAnyVacancy`.
 - `vacancy_fuzzy_duplicates` table stores `vacancy_id`, `duplicate_vacancy_id`, `score`, `reasons_json`, ordered so `vacancy_id < duplicate_vacancy_id`.
+- `idx_vacancies_message_date` index added for efficient time-window queries.
 
 Before starting new code work, rerun:
 
@@ -155,7 +157,13 @@ npx tsc -p tsconfig.json --pretty false
 
 - Git metadata is available.
 - Current branch: `feature/fuzzy-vacancy-dedup` (PR #19).
-- PR #19 is NOT ready to merge — 4 review issues identified, 3 fixed (scoring, ingestor ordering, efficient DB query), 1 pending (integration tests — now fixed with 2 passing integration tests).
+- All 5 review blocks from the latest PR review are resolved:
+  1. Per-user dedup (matching not skipped entirely)
+  2. Root linking (fuzzy chain doesn't fragment groups)
+  3. 9 regression tests covering all edge cases
+  4. Candidate pre-filtering by title tokens + message_date index
+  5. Verification: 575/575 tests pass, typecheck + build clean
+- PR is NOT ready to merge — awaiting final review.
 
 ## Known Problems
 
