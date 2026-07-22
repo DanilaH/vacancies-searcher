@@ -539,6 +539,20 @@ test("designer_ru: correct vacancy URL is accepted, HTTP and other hostnames rej
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/some/section/"), false);
   // 404
   assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/jobs/"), false);
+  // Empty slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t//"), false);
+  // Dot-only slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/./"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/u/../"), false);
+  // Whitespace-only slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/%20/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/%09/"), false);
+  // No letters or digits in slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/-/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/_/"), false);
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/~/"), false);
+  // Slashes in slug
+  assert.equal(isTrustedVacancyUrlShape("designer_ru", "https://designer.ru/t/a%2Fb/"), false);
 });
 
 test("designer_ru: detected as known host via detectTrustedVacancyService", () => {
@@ -557,9 +571,18 @@ test("designer_ru: invalid path throws for non-vacancy URL shapes", () => {
     () => detectTrustedVacancyService("https://designer.ru/prodesigners/"),
     /not supported/u
   );
-  // Subdomain returns generic, not designer_ru
-  const detection = detectTrustedVacancyService("https://www.designer.ru/u/some-role/");
-  assert.equal(detection.adapter, "generic");
+  assert.throws(
+    () => detectTrustedVacancyService("https://www.designer.ru/u/some-role/"),
+    /subdomain/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://blog.designer.ru/u/some-role/"),
+    /subdomain/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://careers.designer.ru/t/some-role/"),
+    /subdomain/iu
+  );
 });
 
 test("designer_ru: adapter parses valid vacancy page with JSON-LD, rejects missing and non-vacancy pages", async () => {
@@ -624,6 +647,31 @@ test("designer_ru: adapter parses valid vacancy page with JSON-LD, rejects missi
   });
   await assert.rejects(() =>
     enricherNonVacancy.enrich("https://designer.ru/t/about-us/", true),
+    /confident vacancy/u
+  );
+
+  // Vacancy-like page without JSON-LD should be rejected (JSON-LD-only)
+  const enricherNoJsonLd = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        `<!DOCTYPE html><html lang="ru"><head><title>Middle Designer</title></head>
+<body>
+<h1>Middle Designer</h1>
+<main>
+<h2>Обязанности</h2>
+<p>Дизайн и улучшение продуктовых функций. Работа с командой разработки.</p>
+<h2>Требования</h2>
+<p>Опыт работы от 3 лет. Знание Figma и Sketch.</p>
+<h2>Условия</h2>
+<p>Зарплата от 150 000 до 250 000 руб. Удалённая работа.</p>
+<p><strong>Для отклика</strong> пришлите резюме на hr@example.com</p>
+</main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+  await assert.rejects(() =>
+    enricherNoJsonLd.enrich("https://designer.ru/u/middle-designer/", true),
     /confident vacancy/u
   );
 

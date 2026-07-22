@@ -139,7 +139,7 @@ export interface ExternalVacancyEnrichmentResult {
   company: string | null;
   location: string | null;
   employment: string | null;
-  parser: "findmyremote" | "teletype" | "finder_work" | "telegraph" | "ingamejob" | "designer_ru" | "json_ld" | "html_fallback";
+  parser: "findmyremote" | "teletype" | "finder_work" | "telegraph" | "ingamejob" | "json_ld" | "html_fallback";
   warnings: string[];
 }
 

@@ -306,7 +306,6 @@ function htmlFieldValues(description: string, labels: {
 function htmlFallbackParser(service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult["parser"] {
   if (service.adapter === "findmyremote") return "findmyremote";
   if (service.adapter === "finder_work") return "finder_work";
-  if (service.adapter === "designer_ru") return "designer_ru";
   return "html_fallback";
 }
 
@@ -430,9 +429,11 @@ export class ExternalVacancyEnricher {
       const jobPosting = jsonLdJobPosting(html);
       const jsonLdResult = jobPosting ? fromJsonLd(safeUrl, jobPosting) : null;
       const htmlResult = () => fromHtml(safeUrl, html, service);
-      const result = prefersJsonLdFirst(service)
-        ? jsonLdResult ?? htmlResult()
-        : htmlResult() ?? jsonLdResult;
+      const result = service.adapter === "designer_ru"
+        ? jsonLdResult
+        : prefersJsonLdFirst(service)
+          ? jsonLdResult ?? htmlResult()
+          : htmlResult() ?? jsonLdResult;
       if (!result) {
         throw new ExternalVacancyEnrichmentError("Page does not contain a confident vacancy description.", true);
       }

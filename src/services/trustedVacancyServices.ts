@@ -17,6 +17,24 @@ const PATH_SCOPED_HOSTS = new Set([
   "yandex.ru"
 ]);
 
+const KNOWN_DIRECT_HOSTS = new Set([
+  "findmyremote.ai",
+  "teletype.in",
+  "finder.work",
+  "telegra.ph",
+  "ingamejob.com",
+  "designer.ru"
+]);
+
+function isValidDesignerRuSlug(slug: string): boolean {
+  if (/%2[fF]/u.test(slug)) return false;
+  const decoded = decodeURIComponent(slug);
+  if (decoded === "." || decoded === "..") return false;
+  if (/^\s*$/u.test(decoded)) return false;
+  if (!/[a-zA-Z0-9\u0400-\u04FF]/u.test(decoded)) return false;
+  return true;
+}
+
 const INGAMEJOB_SUPPORTED_LOCALES = new Set(["en", "pl", "uk", "ru"]);
 
 const DESIGNER_RU_VACANCY_CATEGORIES = new Set(["t", "u", "r", "m"]);
@@ -134,6 +152,12 @@ export function detectTrustedVacancyService(value: string): TrustedServiceDetect
     return { ...known, exampleUrl };
   }
 
+  for (const knownHost of KNOWN_DIRECT_HOSTS) {
+    if (hostname !== knownHost && hostname.endsWith("." + knownHost)) {
+      throw new Error("Subdomains of trusted vacancy services are not supported.");
+    }
+  }
+
   if (PATH_SCOPED_HOSTS.has(hostname)) {
     throw new Error("Trusted vacancy service URL path is not supported for this hostname.");
   }
@@ -179,7 +203,7 @@ export function isTrustedVacancyUrlShape(adapter: TrustedVacancyServiceAdapter, 
     case "ingamejob":
       return hostname === "ingamejob.com" && segments.length === 3 && INGAMEJOB_SUPPORTED_LOCALES.has(segments[0]!) && segments[1] === "job" && segments[2]!.length >= 1;
     case "designer_ru":
-      return hostname === "designer.ru" && segments.length === 2 && DESIGNER_RU_VACANCY_CATEGORIES.has(segments[0]!) && segments[1]!.length >= 1;
+      return hostname === "designer.ru" && segments.length === 2 && DESIGNER_RU_VACANCY_CATEGORIES.has(segments[0]!) && isValidDesignerRuSlug(segments[1]!);
     case "generic":
       return true;
   }
