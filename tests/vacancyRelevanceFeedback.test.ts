@@ -787,6 +787,32 @@ test("handleHide: valid hide — status hidden, feedback recorded, single answer
   database.close();
 });
 
+test("handleHide: existing active reminder is cancelled with analytics", async () => {
+  const { database } = createFixture();
+  setupTestUsers(database);
+  const vacId = insertVacancy(database, "telegram_web_preview", "ch1", "rem1", "text");
+  insertMatch(database, "777", vacId);
+  database.scheduleUserVacancyReminder("777", vacId, new Date(Date.now() + 86400000).toISOString());
+  assert.ok(database.getActiveUserVacancyReminder("777", vacId), "reminder exists before hide");
+
+  const spy = makeAnalyticsSpy();
+  const analytics = spy as unknown as AnalyticsService;
+  const { ui, calls } = makeHideUI();
+
+  const ctx: MockCtx = makeMockContext(777, `vacancy:status:${vacId}:hidden:compact`);
+  await handleVacancyHideCallback(ctx, database, analytics, "777", vacId, "inbox", ui);
+
+  assert.equal(database.getActiveUserVacancyReminder("777", vacId), null, "reminder cancelled after hide");
+  assert.equal(ctx.answerCount, 1, "single answer");
+
+  const cancelledEvents = spy.events.filter((e) => e.eventName === "vacancy_reminder_cancelled");
+  assert.equal(cancelledEvents.length, 1, "one reminder cancelled event");
+  assert.equal(cancelledEvents[0].properties?.trigger, "status_hidden");
+  assert.equal(cancelledEvents[0].properties?.vacancy_id, vacId);
+
+  database.close();
+});
+
 test("handleHide: second hide returns forbidden (no match after deletion)", async () => {
   const { database } = createFixture();
   setupTestUsers(database);

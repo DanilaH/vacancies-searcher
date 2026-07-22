@@ -90,9 +90,8 @@ export async function handleVacancyHideCallback(
     return "forbidden";
   }
 
-  database.setUserVacancyStatus(currentUserId, vacancyId, "hidden");
-
   const activeReminder = database.getActiveUserVacancyReminder(currentUserId, vacancyId);
+  database.setUserVacancyStatus(currentUserId, vacancyId, "hidden");
   if (activeReminder) {
     await analytics.capture({
       eventName: "vacancy_reminder_cancelled",
