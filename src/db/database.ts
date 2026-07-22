@@ -1321,6 +1321,13 @@ export class VacancyDatabase {
     return v === "relevant" || v === "not_relevant" ? v : null;
   }
 
+  hasUserVacancyMatch(userId: string, vacancyId: number): boolean {
+    const row = this.getDb()
+      .prepare("SELECT 1 FROM user_vacancy_matches WHERE user_id = ? AND vacancy_id = ? LIMIT 1")
+      .get(userId, vacancyId);
+    return !!row;
+  }
+
   clearVacancyRelevanceFeedback(userId: string, vacancyId: number): void {
     this.getDb()
       .prepare("DELETE FROM vacancy_relevance_feedback WHERE user_id = ? AND vacancy_id = ?")
