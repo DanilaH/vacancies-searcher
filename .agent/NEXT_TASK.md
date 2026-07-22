@@ -20,7 +20,7 @@ PR #21 (`feat/fuzzy-dedup-report`) is open — owner-only `/fuzzyreport` command
 - `src/services/fuzzyDedupReport.ts` — `buildFuzzyDedupReport(database, days?, now?)`
 - `src/bot/fuzzyDedupReportHandler.ts` — `handleFuzzyDedupReportCommand(ctx, database)`
 - `src/bot/createBot.ts` — command registered in `OWNER_BOT_COMMANDS` + handler
-- `tests/fuzzyDedupReport.test.ts` — 16 tests covering aggregation, groups, buckets, filtering, access, and privacy
+- `tests/fuzzyDedupReport.test.ts` — 24 tests covering aggregation, groups, buckets, filtering, deep transitive chains, independent groups, access, and privacy
 
 ## Verification
 

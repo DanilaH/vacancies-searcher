@@ -436,6 +436,64 @@ test("boundary group size with old link A-B and new link B-C", () => {
   }
 });
 
+test("deep old chain A-B-C with fresh link C-D resolves full group size 4", () => {
+  const { database, sqlite, tempDir } = createDb();
+  try {
+    const v1 = insertVacancy(sqlite, "tg", "ch1", 35);
+    const v2 = insertVacancy(sqlite, "tg", "ch1", 35);
+    const v3 = insertVacancy(sqlite, "tg", "ch1", 35);
+    const v4 = insertVacancy(sqlite, "tg", "ch1", 1);
+
+    insertFuzzyLink(sqlite, v1.id, v2.id, 0.5, 35);
+    insertFuzzyLink(sqlite, v2.id, v3.id, 0.55, 35);
+    insertFuzzyLink(sqlite, v3.id, v4.id, 0.6, 1);
+
+    const stats = database.getFuzzyDedupStats(
+      new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+    );
+    assert.equal(stats.totalLinks, 1, "Only the fresh link counted in totalLinks");
+    assert.equal(stats.totalGroups, 1, "One group touched");
+    const size4plus = stats.groupSizeDistribution.find((g) => g.sizeLabel === "4+");
+    assert.equal(size4plus?.count, 1, "Full transitive group size is 4+ (A-B-C-D)");
+    assert.equal(stats.groupSizeDistribution.find((g) => g.sizeLabel === "2")?.count, 0, "No group of size 2");
+    assert.equal(stats.groupSizeDistribution.find((g) => g.sizeLabel === "3")?.count, 0, "No group of size 3");
+
+    const bucket_50_69 = stats.scoreBuckets.find((b) => b.label === "0.50\u20130.69");
+    assert.equal(bucket_50_69?.count, 1, "The fresh link (0.60) in correct bucket");
+    assert.equal(stats.scoreBuckets.find((b) => b.label === "0.35\u20130.49")?.count, 0, "Old link score not counted");
+    assert.equal(stats.scoreBuckets.find((b) => b.label === "0.70\u20130.84")?.count, 0, "No scores in 0.70-0.84");
+    assert.equal(stats.scoreBuckets.find((b) => b.label === "0.85\u20131.00")?.count, 0, "No scores in 0.85-1.00");
+  } finally {
+    closeAndClean(database, sqlite, tempDir);
+  }
+});
+
+test("two independent affected groups keep separate sizes", () => {
+  const { database, sqlite, tempDir } = createDb();
+  try {
+    const v1 = insertVacancy(sqlite, "tg", "ch1", 40);
+    const v2 = insertVacancy(sqlite, "tg", "ch1", 40);
+    const v3 = insertVacancy(sqlite, "tg", "ch1", 1);
+    const v4 = insertVacancy(sqlite, "tg", "ch2", 40);
+    const v5 = insertVacancy(sqlite, "tg", "ch2", 40);
+    const v6 = insertVacancy(sqlite, "tg", "ch2", 1);
+
+    insertFuzzyLink(sqlite, v1.id, v2.id, 0.5, 40);
+    insertFuzzyLink(sqlite, v2.id, v3.id, 0.6, 1);
+    insertFuzzyLink(sqlite, v4.id, v5.id, 0.5, 40);
+    insertFuzzyLink(sqlite, v5.id, v6.id, 0.6, 1);
+
+    const stats = database.getFuzzyDedupStats(
+      new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+    );
+    assert.equal(stats.totalLinks, 2, "Both fresh links counted");
+    assert.equal(stats.totalGroups, 2, "Two independent groups");
+    assert.equal(stats.groupSizeDistribution.find((g) => g.sizeLabel === "3")?.count, 2, "Both groups have full size 3");
+  } finally {
+    closeAndClean(database, sqlite, tempDir);
+  }
+});
+
 test("report does not contain vacancy text, contacts, or user IDs", () => {
   const { database, sqlite, tempDir } = createDb();
   try {

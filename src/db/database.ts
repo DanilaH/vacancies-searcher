@@ -3006,15 +3006,28 @@ export class VacancyDatabase {
     if (touchedNodeIds.size === 0) {
       groupSizeBuckets = { size2: 0, size3: 0, size4plus: 0 };
     } else {
-      const allTouched = [...touchedNodeIds];
-      const placeholders = allTouched.map(() => "?").join(",");
-      const allEdges = db
-        .prepare(
-          `SELECT vacancy_id, duplicate_vacancy_id
-          FROM vacancy_fuzzy_duplicates
-          WHERE vacancy_id IN (${placeholders}) OR duplicate_vacancy_id IN (${placeholders})`
-        )
-        .all(...allTouched, ...allTouched) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+      const allEdges: Array<{ vacancy_id: number; duplicate_vacancy_id: number }> = [];
+      {
+        let prevSize = 0;
+        while (touchedNodeIds.size > prevSize) {
+          prevSize = touchedNodeIds.size;
+          const allTouched = [...touchedNodeIds];
+          const placeholders = allTouched.map(() => "?").join(",");
+          const batch = db
+            .prepare(
+              `SELECT vacancy_id, duplicate_vacancy_id
+              FROM vacancy_fuzzy_duplicates
+              WHERE vacancy_id IN (${placeholders})
+                 OR duplicate_vacancy_id IN (${placeholders})`
+            )
+            .all(...allTouched, ...allTouched) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+          for (const row of batch) {
+            touchedNodeIds.add(row.vacancy_id);
+            touchedNodeIds.add(row.duplicate_vacancy_id);
+            allEdges.push(row);
+          }
+        }
+      }
 
       const parent = new Map<number, number>();
       const rank = new Map<number, number>();
