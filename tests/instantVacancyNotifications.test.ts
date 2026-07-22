@@ -9,7 +9,7 @@ import type * as grammy from "grammy";
 import { createAnalyticsService } from "../src/analytics/analyticsService";
 import type { BotController } from "../src/bot/createBot";
 import { createNotificationsKeyboard } from "../src/bot/keyboards";
-import { handleInstantVacancyToggle } from "../src/bot/notificationToggleHandler";
+import { handleInstantVacancyToggle, handleInstantVacancyToggleCallback } from "../src/bot/notificationToggleHandler";
 import { VacancyDatabase } from "../src/db/database";
 import { getSchemaTableColumns } from "../src/db/schema";
 import { VacancyFilter } from "../src/services/vacancyFilter";
@@ -422,6 +422,135 @@ test("existing digest and empty-cycle settings unchanged by instant toggle", () 
   assert.equal(settings.instantVacancyNotificationsEnabled, false);
   assert.equal(settings.notifyOnEmptyCycle, true);
   assert.equal(settings.dailyDigestEnabled, true);
+});
+
+// ─── Callback-flow tests ──────────────────────────────────────────────────
+
+test("callback toggles setting, answers once, updates panel, creates analytics", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setInstantVacancyNotificationsEnabled(config.ownerUserId!, true);
+
+  let answerCount = 0;
+  let answerText: string | undefined;
+  let panelCallCount = 0;
+  let panelMode: string | undefined;
+  const ctx = {
+    callbackQuery: { id: "cb1" },
+    from: { id: 777, is_bot: false, first_name: "Test" },
+    answerCallbackQuery: async (params: string | { text?: string } | undefined) => {
+      answerCount++;
+      answerText = typeof params === "string" ? params : params?.text;
+      return { ok: true, result: true } as never;
+    },
+  };
+  type AnalyticsEvent = { eventName: string; userId: string; properties: Record<string, unknown> };
+  const analytics: AnalyticsEvent[] = [];
+  const analyticsService = {
+    capture: async (event: AnalyticsEvent) => { analytics.push(event); },
+    shutdown: async () => {}
+  } as never;
+  const showNotificationsPanel = async (_ctx: grammy.Context, mode: string) => {
+    panelCallCount++;
+    panelMode = mode;
+  };
+
+  await handleInstantVacancyToggleCallback(ctx as never, database, analyticsService, showNotificationsPanel);
+
+  const settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, false, "Setting toggled to false");
+  assert.equal(answerCount, 1, "answerCallbackQuery called once");
+  assert.equal(answerText, "🔕 Уведомления о новых вакансиях выключены.", "Correct answer text");
+  assert.equal(panelCallCount, 1, "Notifications panel updated");
+  assert.equal(panelMode, "edit", "Panel updated in edit mode");
+  assert.equal(analytics.length, 1, "One analytics event created");
+  assert.equal(analytics[0]!.eventName, "instant_vacancy_notifications_toggled", "Correct event name");
+  assert.equal(analytics[0]!.properties.new_value, false, "Event has new_value = false");
+
+  database.close();
+});
+
+test("callback without userId returns error, does not toggle or update panel", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+
+  let answerCount = 0;
+  let answerText: string | undefined;
+  let panelCallCount = 0;
+  const ctx = {
+    callbackQuery: { id: "cb1" },
+    answerCallbackQuery: async (params: string | { text?: string } | undefined) => {
+      answerCount++;
+      answerText = typeof params === "string" ? params : params?.text;
+      return { ok: true, result: true } as never;
+    },
+  };
+  let analyticsCalled = false;
+  const analyticsService = {
+    capture: async () => { analyticsCalled = true; },
+    shutdown: async () => {}
+  } as never;
+  const showNotificationsPanel = async () => { panelCallCount++; };
+
+  await handleInstantVacancyToggleCallback(ctx as never, database, analyticsService, showNotificationsPanel);
+
+  const settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, true, "Setting unchanged (default true)");
+  assert.equal(answerCount, 1, "answerCallbackQuery called once");
+  assert.equal(answerText, "⚠️ Не удалось определить пользователя.", "Error message shown");
+  assert.equal(panelCallCount, 0, "Notifications panel not updated");
+  assert.equal(analyticsCalled, false, "No analytics event captured");
+
+  database.close();
+});
+
+test("callback toggles back and forth on repeated press", async () => {
+  const config = createTempDatabaseConfig();
+  const database = new VacancyDatabase(config);
+  database.initialize();
+  database.setInstantVacancyNotificationsEnabled(config.ownerUserId!, true);
+
+  const answers: string[] = [];
+  let panelCallCount = 0;
+  const ctx = {
+    callbackQuery: { id: "cb1" },
+    from: { id: 777, is_bot: false, first_name: "Test" },
+    answerCallbackQuery: async (params: string | { text?: string } | undefined) => {
+      answers.push(typeof params === "string" ? params : params?.text ?? "");
+      return { ok: true, result: true } as never;
+    },
+  };
+  type AnalyticsEvent = { eventName: string; userId: string; properties: Record<string, unknown> };
+  const analytics: AnalyticsEvent[] = [];
+  const analyticsService = {
+    capture: async (event: AnalyticsEvent) => { analytics.push(event); },
+    shutdown: async () => {}
+  } as never;
+  const showNotificationsPanel = async () => { panelCallCount++; };
+
+  // First press: true → false
+  await handleInstantVacancyToggleCallback(ctx as never, database, analyticsService, showNotificationsPanel);
+  let settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, false, "After first press: set to false");
+  assert.equal(answers.length, 1, "First press got one answer");
+  assert.equal(answers[0], "🔕 Уведомления о новых вакансиях выключены.", "First press correct text");
+  assert.equal(panelCallCount, 1, "Panel updated after first press");
+
+  // Second press: false → true
+  await handleInstantVacancyToggleCallback(ctx as never, database, analyticsService, showNotificationsPanel);
+  settings = database.getUserSettings(config.ownerUserId!);
+  assert.equal(settings.instantVacancyNotificationsEnabled, true, "After second press: set to true");
+  assert.equal(answers.length, 2, "Second press got one answer");
+  assert.equal(answers[1], "🔔 Уведомления о новых вакансиях включены.", "Second press correct text");
+  assert.equal(panelCallCount, 2, "Panel updated after second press");
+
+  assert.equal(analytics.length, 2, "Two analytics events created");
+  assert.equal(analytics[0]!.properties.new_value, false, "First event: new_value = false");
+  assert.equal(analytics[1]!.properties.new_value, true, "Second event: new_value = true");
+
+  database.close();
 });
 
 function createTempDatabaseConfig() {

@@ -38,7 +38,7 @@ import { handleRetentionCommand } from "./retentionHandler";
 import { handleQualityReportCommand } from "./matchingQualityReportHandler";
 import { handleQualityAuditCommand, handleAuditVerdictCallback, handleMalformedAuditCallback } from "./qualityAuditHandler";
 import { handleVacancyHideCallback, handleVacancyRelevanceCallback } from "./relevanceFeedbackHandler";
-import { handleInstantVacancyToggle } from "./notificationToggleHandler";
+import { handleInstantVacancyToggleCallback } from "./notificationToggleHandler";
 import { buildWeeklyReport, buildReportKeyboard, isPeriodSelectedInMessage, REPORT_PERIOD_OPTIONS, type ReportPeriod } from "../services/weeklyReport";
 import { SearchProfilePresetForecastService } from "../services/searchProfilePresetForecast";
 import { ExternalVacancyEnricher } from "../services/externalVacancyEnricher";
@@ -2737,13 +2737,7 @@ export function createBotController(
         await showAdminPanel(ctx, "edit");
     });
     bot.callbackQuery("notifications:toggle_instant_vacancy", async (ctx) => {
-        const currentUserId = getCurrentUserId(ctx);
-        if (!currentUserId) {
-            await ctx.answerCallbackQuery({ text: "⚠️ Не удалось определить пользователя." });
-            return;
-        }
-        await handleInstantVacancyToggle(ctx, database, analytics, currentUserId);
-        await showNotificationsPanel(ctx, "edit");
+        await handleInstantVacancyToggleCallback(ctx, database, analytics, showNotificationsPanel);
     });
     bot.callbackQuery("notifications:toggle_empty_cycle_notice", async (ctx) => {
         const currentUserId = getCurrentUserId(ctx);
