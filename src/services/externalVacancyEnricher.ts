@@ -303,9 +303,34 @@ function htmlFieldValues(description: string, labels: {
   };
 }
 
+function collectProductNodes(value: unknown): Array<Record<string, unknown>> {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap(collectProductNodes);
+  const record = value as Record<string, unknown>;
+  const types = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
+  return [
+    ...(types.some((type) => typeof type === "string" && type.toLowerCase() === "product") ? [record] : []),
+    ...collectProductNodes(record["@graph"])
+  ];
+}
+
+function jsonLdProduct(html: string): Record<string, unknown> | null {
+  const $ = load(html);
+  for (const element of $("script[type='application/ld+json']").toArray()) {
+    try {
+      const nodes = collectProductNodes(JSON.parse($(element).text()));
+      if (nodes[0]) return nodes[0];
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 function htmlFallbackParser(service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult["parser"] {
   if (service.adapter === "findmyremote") return "findmyremote";
   if (service.adapter === "finder_work") return "finder_work";
+  if (service.adapter === "mts_jobs") return "mts_jobs";
   return "html_fallback";
 }
 
@@ -319,6 +344,40 @@ function prefersJsonLdFirst(service: TrustedVacancyServiceRecord): boolean {
     || service.adapter === "designer_ru";
 }
 
+function fromMtsJobs(url: string, html: string): ExternalVacancyEnrichmentResult | null {
+  const product = jsonLdProduct(html);
+  if (!product) return null;
+  const title = asString(product.name);
+  const description = htmlFragmentToText(asString(product.description) ?? "");
+  const company = asString(product.brand);
+  const offers = product.offers;
+  const availability = offers && typeof offers === "object"
+    ? asString((offers as Record<string, unknown>).availability)
+    : null;
+  const hasArchivedHtmlMarker = /вакансия в архиве/iu.test(normalizeReadableText(load(html).text()));
+  if ((availability && /outofstock/iu.test(availability)) || hasArchivedHtmlMarker) return null;
+  const salary = offers && typeof offers === "object"
+    ? asString((offers as Record<string, unknown>).price)
+    : null;
+  if (!title || !description) return null;
+  return {
+    url,
+    title,
+    company,
+    location: null,
+    employment: null,
+    parser: "mts_jobs",
+    warnings: [],
+    text: buildText({
+      title,
+      company,
+      location: null,
+      employment: null,
+      description: salary ? `${description}\n\nЗарплата: ${salary}` : description
+    })
+  };
+}
+
 function fromHtml(url: string, html: string, service: TrustedVacancyServiceRecord): ExternalVacancyEnrichmentResult | null {
   if (service.adapter === "teletype") {
     return fromTeletype(url, html);
@@ -328,6 +387,9 @@ function fromHtml(url: string, html: string, service: TrustedVacancyServiceRecor
   }
   if (service.adapter === "ingamejob") {
     return fromIngameJob(url, html);
+  }
+  if (service.adapter === "mts_jobs") {
+    return fromMtsJobs(url, html);
   }
   const $ = load(html);
   const title = $("h1").first().text().trim() || $("meta[property='og:title']").attr("content")?.trim() || null;

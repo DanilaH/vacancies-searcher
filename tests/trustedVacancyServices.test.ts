@@ -717,6 +717,246 @@ test("designer_ru: oversized response is rejected", async () => {
   database.close();
 });
 
+test("mts_jobs: correct vacancy URL is accepted, HTTP and other hostnames rejected", () => {
+  // Correct URL with numeric ID
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/648199108112156868"), true);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/123"), true);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/0"), true);
+  // HTTP rejected via normalizeTrustedVacancyUrl
+  assert.throws(() => normalizeTrustedVacancyUrl("http://job.mts.ru/vacancy/123"), /HTTPS/u);
+  // Wrong hostname
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://other.com/vacancy/123"), false);
+  // Subdomain rejected
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://www.job.mts.ru/vacancy/123"), false);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://careers.job.mts.ru/vacancy/123"), false);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://mts.ru/vacancy/123"), false);
+  // Home page
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/"), false);
+  // Listing page
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancies"), false);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancies?cat=it-123"), false);
+  // Non-vacancy paths
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/blog/"), false);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/about/"), false);
+  // Non-numeric segment
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/some-role"), false);
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/"), false);
+  // Extra path segments
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/123/details"), false);
+  // Query params allowed (path-only check)
+  assert.equal(isTrustedVacancyUrlShape("mts_jobs", "https://job.mts.ru/vacancy/648199108112156868?_reload=1775520000000"), true);
+});
+
+test("mts_jobs: detected as known host via detectTrustedVacancyService", () => {
+  const detection = detectTrustedVacancyService("https://job.mts.ru/vacancy/648199108112156868");
+  assert.equal(detection.adapter, "mts_jobs");
+  assert.equal(detection.displayName, "MTS Jobs");
+  assert.equal(detection.hostname, "job.mts.ru");
+});
+
+test("mts_jobs: invalid path throws for non-vacancy URL shapes", () => {
+  assert.throws(
+    () => detectTrustedVacancyService("https://job.mts.ru/"),
+    /not supported/u
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://job.mts.ru/vacancies"),
+    /not supported/u
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://job.mts.ru/blog/"),
+    /not supported/u
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://www.job.mts.ru/vacancy/123"),
+    /subdomain/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://careers.job.mts.ru/vacancy/123"),
+    /subdomain/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://job.mts.ru/vacancy/some-role"),
+    /not supported/iu
+  );
+  assert.throws(
+    () => detectTrustedVacancyService("https://job.mts.ru/vacancy/123/details"),
+    /not supported/iu
+  );
+});
+
+test("mts_jobs: adapter parses valid vacancy page with Product JSON-LD, rejects missing and non-vacancy pages", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "job.mts.ru",
+    displayName: "MTS Jobs",
+    adapter: "mts_jobs",
+    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const activeHtml = fs.readFileSync(path.resolve(__dirname, "fixtures/mts-jobs-active.html"), "utf-8");
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(activeHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+
+  const vacancy = await enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true);
+  assert.equal(vacancy?.parser, "mts_jobs");
+  assert.equal(vacancy?.title, "Системный аналитик");
+  assert.equal(vacancy?.company, "ПАО МТС-Банк");
+  assert.equal(vacancy?.location, null);
+  assert.equal(vacancy?.employment, null);
+  assert.match(vacancy?.text ?? "", /системный аналитик/iu);
+  assert.match(vacancy?.text ?? "", /з\/п по договоренности/iu);
+
+  // 404 page rejection
+  const enricher404 = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response("Not found", { status: 404 })
+  });
+  await assert.rejects(() =>
+    enricher404.enrich("https://job.mts.ru/vacancy/999", true),
+    /HTTP 404/u
+  );
+
+  // Archived page (HTTP 200 with OutOfStock Product JSON-LD) is rejected
+  const archivedHtml = fs.readFileSync(path.resolve(__dirname, "fixtures/mts-jobs-archived.html"), "utf-8");
+  const enricherArchived = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(archivedHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+  await assert.rejects(() =>
+    enricherArchived.enrich("https://job.mts.ru/vacancy/648199108112156868", true),
+    /confident vacancy/u
+  );
+
+  // CDN variants may retain InStock JSON-LD while rendering an explicit archive marker.
+  const conflictingArchiveHtml = archivedHtml.replace(
+    "https://schema.org/OutOfStock",
+    "https://schema.org/InStock"
+  );
+  const enricherConflictingArchive = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(conflictingArchiveHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+  await assert.rejects(() =>
+    enricherConflictingArchive.enrich("https://job.mts.ru/vacancy/648199108112156868", true),
+    /confident vacancy/u
+  );
+
+  // Non-vacancy page (no Product JSON-LD, no confident HTML content)
+  const enricherNonVacancy = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        "<html><body><h1>About MTS</h1><p>This is a telecom company.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+  await assert.rejects(() =>
+    enricherNonVacancy.enrich("https://job.mts.ru/vacancy/888", true),
+    /confident vacancy/u
+  );
+
+  // Vacancy-like page without Product JSON-LD should be rejected (specialized parser only)
+  const enricherNoJsonLd = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(
+        `<!DOCTYPE html><html lang="ru"><head><title>Middle Developer</title></head>
+<body>
+<h1>Middle Developer</h1>
+<main>
+<h2>Обязанности</h2>
+<p>Разработка и поддержка продукта.</p>
+<h2>Требования</h2>
+<p>Опыт работы от 2 лет.</p>
+</main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      )
+  });
+  await assert.rejects(() =>
+    enricherNoJsonLd.enrich("https://job.mts.ru/vacancy/777", true),
+    /confident vacancy/u
+  );
+
+  // Temporary network error (503) — should throw generic error
+  const enricher503 = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response("Service unavailable", { status: 503 })
+  });
+  await assert.rejects(() =>
+    enricher503.enrich("https://job.mts.ru/vacancy/666", true),
+    /HTTP 503/u
+  );
+
+  database.close();
+});
+
+test("mts_jobs: oversized response is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "job.mts.ru",
+    displayName: "MTS Jobs",
+    adapter: "mts_jobs",
+    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const largeHtml = "x".repeat(config.companyCareersMaxResponseBytes + 1);
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () =>
+      new Response(largeHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true),
+    /too large/u
+  );
+
+  database.close();
+});
+
+test("mts_jobs: redirect is rejected", async () => {
+  const { config, database } = createDatabase();
+  const testService = database.addTrustedVacancyService({
+    hostname: "job.mts.ru",
+    displayName: "MTS Jobs",
+    adapter: "mts_jobs",
+    exampleUrl: "https://job.mts.ru/vacancy/506844733251780696"
+  });
+  database.setTrustedVacancyServiceStatus(testService.id, "active", "123456");
+
+  const enricher = new ExternalVacancyEnricher(config, database, {
+    assertSafeUrl: async (url) => url,
+    fetchImpl: async () => new Response(null, { status: 302, headers: { location: "https://other.com" } })
+  });
+
+  await assert.rejects(() =>
+    enricher.enrich("https://job.mts.ru/vacancy/506844733251780696", true),
+    /HTTP 302/u
+  );
+
+  database.close();
+});
+
 test("designer_ru: redirect is rejected", async () => {
   const { config, database } = createDatabase();
   const testService = database.addTrustedVacancyService({

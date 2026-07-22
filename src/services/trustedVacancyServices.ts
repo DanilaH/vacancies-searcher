@@ -23,7 +23,8 @@ const KNOWN_DIRECT_HOSTS = new Set([
   "finder.work",
   "telegra.ph",
   "ingamejob.com",
-  "designer.ru"
+  "designer.ru",
+  "job.mts.ru"
 ]);
 
 const DESIGNER_RU_VACANCY_SLUG_PATTERN = /^[a-z0-9]+(?:-+[a-z0-9]+)*$/u;
@@ -123,6 +124,9 @@ function knownHostDetection(hostname: string, exampleUrl: string): Omit<TrustedS
   if (hostname === "designer.ru") {
     return { hostname, displayName: "Designer.ru", adapter: "designer_ru" };
   }
+  if (hostname === "job.mts.ru") {
+    return { hostname, displayName: "MTS Jobs", adapter: "mts_jobs" };
+  }
   if (hostname === "www.aviasales.ru" && isTrustedVacancyUrlShape("aviasales_careers", exampleUrl)) {
     return { hostname, displayName: "Aviasales", adapter: "aviasales_careers" };
   }
@@ -201,6 +205,8 @@ export function isTrustedVacancyUrlShape(adapter: TrustedVacancyServiceAdapter, 
       return hostname === "ingamejob.com" && segments.length === 3 && INGAMEJOB_SUPPORTED_LOCALES.has(segments[0]!) && segments[1] === "job" && segments[2]!.length >= 1;
     case "designer_ru":
       return hostname === "designer.ru" && segments.length === 2 && DESIGNER_RU_VACANCY_CATEGORIES.has(segments[0]!) && isValidDesignerRuSlug(segments[1]!);
+    case "mts_jobs":
+      return hostname === "job.mts.ru" && segments.length === 2 && segments[0] === "vacancy" && /^\d+$/u.test(segments[1]!);
     case "generic":
       return true;
   }

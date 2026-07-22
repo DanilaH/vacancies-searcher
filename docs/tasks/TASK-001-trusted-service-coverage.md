@@ -107,13 +107,13 @@ Can run in parallel with:
 
 Recommended order:
 
-1. Probe and add small adapters for remaining pending sites that generic parsing missed:
-   - ~~`ingamejob.com`~~ (dedicated adapter added as built-in, seeded pending)
-   - `designer.ru`
-   - `job.mts.ru`
-   - `rabota.sber.ru`
-   - `job.megafon.ru`
-   - `job.alfabank.ru`
+ 1. Probe and add small adapters for remaining pending sites that generic parsing missed:
+    - ~~`ingamejob.com`~~ (dedicated adapter added as built-in, seeded pending)
+    - ~~`designer.ru`~~ (dedicated JSON-LD adapter added as built-in, PR #25)
+    - ~~`job.mts.ru`~~ (Product JSON-LD adapter with archive detection, PR #27)
+    - `rabota.sber.ru`
+    - `job.megafon.ru`
+    - `job.alfabank.ru`
 2. Prefer adapter-specific URL shape plus existing JSON-LD/HTML extraction over loosening the generic fallback.
 3. Decide whether any already guarded broad-domain service should become active only after real sample checks.
 4. If admin diagnostics are confusing, report "known host, unsupported URL shape" separately from unknown/pending services.
