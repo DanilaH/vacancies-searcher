@@ -2933,6 +2933,122 @@ export class VacancyDatabase {
     return row !== undefined;
   }
 
+  getFuzzyDedupStats(sinceIso: string): import("../types").FuzzyDedupStats {
+    const db = this.getDb();
+
+    const totalLinksRow = db
+      .prepare("SELECT COUNT(*) AS count FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
+      .get(sinceIso) as { count: number };
+    const totalLinks = totalLinksRow.count;
+
+    const scoreRow = db
+      .prepare("SELECT AVG(score) AS avg, MIN(score) AS min, MAX(score) AS max FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
+      .get(sinceIso) as { avg: number | null; min: number | null; max: number | null };
+
+    const bucketRows = db
+      .prepare(
+        `SELECT
+          CASE
+            WHEN score < 0.5 THEN '0.35\u20130.49'
+            WHEN score < 0.7 THEN '0.50\u20130.69'
+            WHEN score < 0.85 THEN '0.70\u20130.84'
+            ELSE '0.85\u20131.00'
+          END AS bucket,
+          COUNT(*) AS count
+        FROM vacancy_fuzzy_duplicates
+        WHERE created_at >= ?
+        GROUP BY bucket
+        ORDER BY bucket`
+      )
+      .all(sinceIso) as Array<{ bucket: string; count: number }>;
+
+    const topPairs = db
+      .prepare(
+        `SELECT v.source_name, v.source_channel, COUNT(*) AS link_count
+        FROM vacancy_fuzzy_duplicates d
+        JOIN vacancies v ON v.id = d.duplicate_vacancy_id
+        WHERE d.created_at >= ?
+        GROUP BY v.source_name, v.source_channel
+        ORDER BY link_count DESC
+        LIMIT 10`
+      )
+      .all(sinceIso) as Array<{ source_name: string; source_channel: string; link_count: number }>;
+
+    const lastDateRow = db
+      .prepare("SELECT MAX(created_at) AS last_date FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
+      .get(sinceIso) as { last_date: string | null };
+
+    const edgeRows = db
+      .prepare("SELECT vacancy_id, duplicate_vacancy_id FROM vacancy_fuzzy_duplicates WHERE created_at >= ?")
+      .all(sinceIso) as Array<{ vacancy_id: number; duplicate_vacancy_id: number }>;
+
+    const parent = new Map<number, number>();
+    const rank = new Map<number, number>();
+
+    function find(x: number): number {
+      const p = parent.get(x);
+      if (p === undefined || p === x) return x;
+      const root = find(p);
+      parent.set(x, root);
+      return root;
+    }
+
+    function union(a: number, b: number): void {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra === rb) return;
+      const raRank = rank.get(ra) ?? 0;
+      const rbRank = rank.get(rb) ?? 0;
+      if (raRank < rbRank) {
+        parent.set(ra, rb);
+      } else if (raRank > rbRank) {
+        parent.set(rb, ra);
+      } else {
+        parent.set(rb, ra);
+        rank.set(ra, raRank + 1);
+      }
+    }
+
+    for (const row of edgeRows) {
+      if (!parent.has(row.vacancy_id)) { parent.set(row.vacancy_id, row.vacancy_id); rank.set(row.vacancy_id, 0); }
+      if (!parent.has(row.duplicate_vacancy_id)) { parent.set(row.duplicate_vacancy_id, row.duplicate_vacancy_id); rank.set(row.duplicate_vacancy_id, 0); }
+      union(row.vacancy_id, row.duplicate_vacancy_id);
+    }
+
+    const groupSizes = new Map<number, number>();
+    for (const id of parent.keys()) {
+      const root = find(id);
+      groupSizes.set(root, (groupSizes.get(root) ?? 0) + 1);
+    }
+
+    const sizeBuckets: Record<string, number> = { "2": 0, "3": 0, "4+": 0 };
+    for (const size of groupSizes.values()) {
+      if (size === 2) sizeBuckets["2"]++;
+      else if (size === 3) sizeBuckets["3"]++;
+      else sizeBuckets["4+"]++;
+    }
+
+    return {
+      totalLinks,
+      totalGroups: groupSizes.size,
+      averageScore: scoreRow.avg,
+      minScore: scoreRow.min,
+      maxScore: scoreRow.max,
+      scoreBuckets: bucketRows.map((r) => ({ label: r.bucket, count: r.count })),
+      topSourceChannelPairs: topPairs.map((r) => ({
+        sourceName: r.source_name,
+        sourceChannel: r.source_channel,
+        linkCount: r.link_count
+      })),
+      groupSizeDistribution: [
+        { sizeLabel: "2", count: sizeBuckets["2"] },
+        { sizeLabel: "3", count: sizeBuckets["3"] },
+        { sizeLabel: "4+", count: sizeBuckets["4+"] }
+      ],
+      lastMatchDate: lastDateRow.last_date
+    };
+  }
+
   listRecentRawMessageTexts(days: number, limit = 500): string[] {
     const safeLimit = Math.max(1, limit);
     const since = recentThresholdIso(days);
