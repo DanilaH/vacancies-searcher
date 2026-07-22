@@ -861,7 +861,7 @@ function ensureTrustedVacancyServicesTable(db: SqliteDatabase): void {
        added_by_user_id, approved_by_user_id, created_at, updated_at
      ) VALUES (
        'job.mts.ru', 'MTS Jobs', 'mts_jobs', 'pending',
-       'specialized', 'https://job.mts.ru/vacancy/48692116070620824',
+       'specialized', 'https://job.mts.ru/vacancy/506844733251780696',
        NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
      )`
   ).run();
