@@ -1,8 +1,10 @@
+name: vacancies-searcher
+
 services:
   vacancy-bot:
     build: .
-    container_name: vacancy-bot
     restart: unless-stopped
+    stop_grace_period: 30s
     init: true
     read_only: true
     env_file:
