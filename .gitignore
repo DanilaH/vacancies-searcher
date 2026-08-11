@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 data/
+deploy-backups/
 *.session
 *.session-journal
 *.db
