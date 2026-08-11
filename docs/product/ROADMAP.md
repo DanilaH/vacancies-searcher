@@ -61,27 +61,27 @@ Roadmap меняется только в двух случаях:
 
 ## Текущий этап
 
-Сейчас выполняется пункт 1: короткий цикл trusted adapters.
+Выполняется пункт 2: ручной Telegram smoke.
 
-Уже завершены:
+### Завершено
 
-- `ingamejob.com`;
-- `designer.ru`.
+- `ingamejob.com` — production adapter (PR #25).
+- `designer.ru` — production adapter (PR #25).
+- `job.mts.ru` — production adapter (PR #27).
+- `rabota.sber.ru` — research-only, production adapter не добавлен (`docs/research/rabota-sber-ru.md`).
 
-В работе:
+Цикл trusted adapters остановлен. Оставшиеся кандидаты (`job.megafon.ru`, `job.alfabank.ru`, `youngjunior.ru`, `itcharm.com`, `career.sonderads.com`) не получат адаптер в этом цикле. Решение о возобновлении принимается после smoke-аудита и периода реального использования.
 
-- `job.mts.ru`.
+### Подготовка smoke-аудита
 
-Возможные следующие кандидаты оцениваются только после завершения текущего адаптера:
+Перед ручной проверкой подготовлены:
 
-- `rabota.sber.ru`;
-- `job.megafon.ru`;
-- `job.alfabank.ru`;
-- `youngjunior.ru`;
-- `itcharm.com`;
-- `career.sonderads.com`.
+- `docs/qa/TELEGRAM_SMOKE_CHECKLIST.md` — полный список сценариев;
+- `docs/qa/TELEGRAM_SMOKE_RESULTS.md` — автоматическая часть выполнена, ручные пункты ожидают пользователя.
 
-Кандидат не обязан получить production adapter: если нельзя доказать узкий URL-shape и уверенный parser, результатом должен стать research-only вывод без расширения доверия.
+### Следующий шаг
+
+Пользователь проходит ручной checklist (20–30 минут). По результатам — PR с исправлением найденных багов или подтверждение стабильности.
 
 ## Не делать пока
 

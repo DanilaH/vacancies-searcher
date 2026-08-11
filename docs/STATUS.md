@@ -34,18 +34,22 @@ Latest accepted master checkpoint:
 - `designer.ru` — JSON-LD-only trusted adapter (PR #25).
 - `job.mts.ru` — Product JSON-LD adapter with archive detection (PR #27).
 - `rabota.sber.ru` — researched, no production adapter (see `docs/research/rabota-sber-ru.md`).
+- Trusted-adapter cycle stopped after `rabota.sber.ru` research.
 
 ## In progress
 
-Trusted-service research for `job.megafon.ru` is the next candidate.
+Telegram smoke audit preparation:
 
-## Next after the active adapter
+- Automated baseline checks executed (see `docs/qa/TELEGRAM_SMOKE_RESULTS.md`).
+- Manual checklist awaits user execution (see `docs/qa/TELEGRAM_SMOKE_CHECKLIST.md`).
 
-1. Continue the bounded trusted-adapter cycle: probe remaining pending candidates (`job.megafon.ru`, `job.alfabank.ru`, `youngjunior.ru`, etc.) one PR per domain.
-2. Run a manual Telegram UX smoke using a test bot/chat.
-3. Improve "why no results" diagnostics.
-4. Improve multi-vacancy aggregate isolation.
-5. Add owner-facing channel quality analytics.
+## Next after smoke audit
+
+1. Fix P0/P1 issues found during manual smoke.
+2. Improve "why no results" diagnostics (if not already covered by smoke findings).
+3. Improve multi-vacancy aggregate isolation.
+4. Add owner-facing channel quality analytics.
+5. Resume trusted-adapter cycle or stop permanently — decision after real usage period.
 
 The fixed product order is maintained in `docs/product/ROADMAP.md`.
 
