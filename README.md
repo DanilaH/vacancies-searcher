@@ -455,6 +455,8 @@ AUTOMATIC_BACKUP_RETENTION_DAYS=14
 
 ## Docker
 
+The Compose service publishes no host ports, so it can run alongside existing web services and reverse proxies on a shared VPS.
+
 Start:
 
 ```bash
@@ -472,6 +474,8 @@ Stop:
 ```bash
 docker compose down
 ```
+
+For first deployment, safe updates, backup, restore, rollback, and troubleshooting on a shared Linux VPS, see [docs/operations/vps-docker.md](./docs/operations/vps-docker.md).
 
 ## Migration to another VPS
 
