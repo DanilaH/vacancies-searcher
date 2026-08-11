@@ -1,8 +1,17 @@
 # Next Task
 
-## Active: trusted adapter research for `job.megafon.ru`
+## Active: review `ops/develop-vps-deployment` (PR #31) and set up the deploy pipeline
 
-Status: pending — start after the `rabota.sber.ru` research PR is reviewed and merged.
+Status: PR open at https://github.com/DanilaH/vacancies-searcher/pull/31 — wait for review; do not self-merge.
+
+After merge:
+
+1. Create the GitHub Environment `production` with the 6 secrets (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_PRIVATE_KEY`, `VPS_SSH_HOST_KEY`, `VPS_DEPLOY_PATH`).
+2. Prepare the VPS per `docs/operations/deployment.md` (clone, `.env`, `data/`, deploy key, host key via `ssh-keyscan -H localhost` on the VPS).
+3. Create `develop` from `master`, push once, and verify the workflow end-to-end (backup → checkout → rebuild → healthcheck).
+4. Then continue product research: `job.megafon.ru` trusted adapter.
+
+## Queued: trusted adapter research for `job.megafon.ru`
 
 Product phase: source quality and vacancy relevance.
 
