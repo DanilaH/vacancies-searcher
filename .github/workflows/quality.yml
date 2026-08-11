@@ -26,5 +26,13 @@ jobs:
 
       - run: npx tsc -p tsconfig.json --pretty false
 
+      - name: Test VPS deployment script
+        run: bash tests/deployVpsScript.test.sh
+
+      - name: Validate docker compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
       - name: Build production Docker image
         run: docker build --tag vacancies-searcher:ci .

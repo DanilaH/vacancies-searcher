@@ -64,6 +64,7 @@ GIT_FETCH_FAIL="$SANDBOX/git_fetch_fail"           # exists => fetch fails
 GIT_DIRTY_FLAG="$SANDBOX/git_dirty"                # exists => dirty tree
 DOCKER_BUILD_EXIT="$SANDBOX/docker_build_exit"
 DOCKER_BUILD_FAIL_SHA="$SANDBOX/docker_build_fail_sha" # contains SHA whose build fails
+DOCKER_CONFIG_FAIL_SHA="$SANDBOX/docker_config_fail_sha" # contains SHA whose compose config fails
 DOCKER_UP_EXIT="$SANDBOX/docker_up_exit"
 DOCKER_EXEC_EXIT="$SANDBOX/docker_exec_exit"
 DOCKER_EXEC_FAIL_SHA="$SANDBOX/docker_exec_fail_sha"   # contains SHA whose exec fails
@@ -118,7 +119,12 @@ if [ "${1:-}" = "compose" ]; then
     version) exit 0 ;;
     stop) exit "$(cat "$DOCKER_STOP_EXIT")" ;;
     start) exit 0 ;;
-    config) exit 0 ;;
+    config)
+      if [ -f "$DOCKER_CONFIG_FAIL_SHA" ] \
+        && [ "$(cat "$DOCKER_CONFIG_FAIL_SHA")" = "$(cat "$GIT_CURRENT")" ]; then
+        exit 1
+      fi
+      exit 0 ;;
     build)
       if [ -f "$DOCKER_BUILD_FAIL_SHA" ] \
         && [ "$(cat "$DOCKER_BUILD_FAIL_SHA")" = "$(cat "$GIT_CURRENT")" ]; then
@@ -211,7 +217,7 @@ reset_state() {
   printf '0' > "$DOCKER_EXEC_EXIT"
   printf '0' > "$DOCKER_STOP_EXIT"
   rm -f "$GIT_ANCESTOR_FAIL" "$GIT_CHECKOUT_FAIL" "$GIT_CHECKOUT_FAIL_SHA" "$GIT_FETCH_FAIL" "$GIT_DIRTY_FLAG" "$TAR_FAIL"
-  rm -f "$DOCKER_BUILD_FAIL_SHA" "$DOCKER_EXEC_FAIL_SHA"
+  rm -f "$DOCKER_BUILD_FAIL_SHA" "$DOCKER_EXEC_FAIL_SHA" "$DOCKER_CONFIG_FAIL_SHA"
   rm -f "$DOCKER_CALLS_LOG" "$TAR_CALLS_LOG"
   rm -rf "$SANDBOX/project/deploy-backups"
 }
@@ -231,6 +237,7 @@ run_deploy() {
     GIT_DIRTY_FLAG="$GIT_DIRTY_FLAG" \
     DOCKER_BUILD_EXIT="$DOCKER_BUILD_EXIT" \
     DOCKER_BUILD_FAIL_SHA="$DOCKER_BUILD_FAIL_SHA" \
+    DOCKER_CONFIG_FAIL_SHA="$DOCKER_CONFIG_FAIL_SHA" \
     DOCKER_UP_EXIT="$DOCKER_UP_EXIT" \
     DOCKER_EXEC_EXIT="$DOCKER_EXEC_EXIT" \
     DOCKER_EXEC_FAIL_SHA="$DOCKER_EXEC_FAIL_SHA" \
@@ -381,6 +388,33 @@ grep -q "backup is retained" "$TEST_RUNS/out" && pass "backup retained message" 
   || fail "backup retained message"
 
 # ---------------------------------------------------------------------------
+# 10a. Invalid compose config on the new version triggers rollback (exit 2)
+# ---------------------------------------------------------------------------
+
+reset_state
+printf '%s' "$PASS_SHA" > "$DOCKER_CONFIG_FAIL_SHA"
+run_deploy 2 "$PASS_SHA" && pass "compose config failure exits 2"
+grep -q "compose config validation failed" "$TEST_RUNS/out" \
+  && pass "compose config failure message" || fail "compose config failure message"
+grep -q "rollback to previous commit $PREV_SHA" "$TEST_RUNS/out" \
+  && pass "compose config failure rolls back to previous SHA" \
+  || fail "compose config failure rolls back to previous SHA"
+grep -q "rollback result: success" "$TEST_RUNS/out" \
+  && pass "previous version healthcheck passes after rollback" \
+  || fail "previous version healthcheck passes after rollback"
+grep -q "backup file: " "$TEST_RUNS/out" && pass "backup path reported on config rollback" \
+  || fail "backup path reported on config rollback"
+
+# ---------------------------------------------------------------------------
+# 10b. Deploy script guards compose config validation with rollback
+# ---------------------------------------------------------------------------
+
+grep -q "if ! docker compose config --quiet; then" "$DEPLOY_SCRIPT" \
+  && pass "compose config validation is guarded" || fail "compose config validation is guarded"
+grep -q "if ! chmod 600 \"\$BACKUP_FILE\"; then" "$DEPLOY_SCRIPT" \
+  && pass "backup chmod failure is handled" || fail "backup chmod failure is handled"
+
+# ---------------------------------------------------------------------------
 # 11. Workflow: master is not in the deployment trigger
 # ---------------------------------------------------------------------------
 
@@ -439,6 +473,120 @@ grep -q "ref: \${{ github.sha }}" "$WORKFLOW" && pass "checkout pinned to github
 
 grep -q 'node dist/healthcheck.js' "$DEPLOY_SCRIPT" && pass "healthcheck command present in script" \
   || fail "healthcheck command present in script"
+
+# ---------------------------------------------------------------------------
+# 16. Workflow: validation step runs before SSH preparation and carries env
+# ---------------------------------------------------------------------------
+
+VALIDATE="$ROOT/scripts/validate-deploy-secrets.sh"
+
+VALIDATE_BLOCK="$(awk '
+  /- name: Validate required GitHub secrets are configured/ { f=1 }
+  f { print }
+  f && /- name: / && !/- name: Validate required GitHub secrets are configured/ { exit }
+' "$WORKFLOW")"
+
+missing_env=0
+for pair in "VPS_HOST:secrets.VPS_HOST" "VPS_PORT:secrets.VPS_PORT" "VPS_USER:secrets.VPS_USER" \
+  "VPS_SSH_PRIVATE_KEY:secrets.VPS_SSH_PRIVATE_KEY" "VPS_SSH_HOST_KEY:secrets.VPS_SSH_HOST_KEY" \
+  "VPS_DEPLOY_PATH:secrets.VPS_DEPLOY_PATH"; do
+  var="${pair%%:*}"
+  secret="${pair##*:}"
+  if ! printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq "${var}: \${{ ${secret} }}"; then
+    missing_env="$((missing_env + 1))"
+    printf '  missing env mapping: %s\n' "$var" >&2
+  fi
+done
+[ "$missing_env" -eq 0 ] && pass "validation step declares all six secrets via env" \
+  || fail "validation step declares all six secrets via env"
+
+printf '%s\n' "$VALIDATE_BLOCK" | grep -q 'run: bash scripts/validate-deploy-secrets.sh' \
+  && pass "validation step invokes validate-deploy-secrets.sh" \
+  || fail "validation step invokes validate-deploy-secrets.sh"
+
+VAL_LINE="$(grep -n 'Validate required GitHub secrets are configured' "$WORKFLOW" | head -n 1 | cut -d: -f1)"
+PREP_LINE="$(grep -n 'Prepare SSH credentials from GitHub secrets' "$WORKFLOW" | head -n 1 | cut -d: -f1)"
+if [ -n "$VAL_LINE" ] && [ -n "$PREP_LINE" ] && [ "$VAL_LINE" -lt "$PREP_LINE" ]; then
+  pass "validation step runs before SSH credential preparation"
+else
+  fail "validation step runs before SSH credential preparation"
+fi
+
+# ---------------------------------------------------------------------------
+# 17. Validation script: accepts valid values
+# ---------------------------------------------------------------------------
+
+run_validate() {
+  local expected="$1"
+  shift
+  set +e
+  VPS_HOST="$VPS_HOST_V" VPS_PORT="$VPS_PORT_V" VPS_USER="$VPS_USER_V" \
+    VPS_SSH_PRIVATE_KEY="$VPS_KEY_V" VPS_SSH_HOST_KEY="$VPS_HOSTKEY_V" \
+    VPS_DEPLOY_PATH="$VPS_PATH_V" \
+    bash "$VALIDATE" "$@" > "$TEST_RUNS/validate_out" 2>&1
+  local code=$?
+  set -e
+  if [ "$code" -ne "$expected" ]; then
+    fail "validate: expected exit $expected, got $code"
+    sed 's/^/    | /' "$TEST_RUNS/validate_out" || true
+    return 1
+  fi
+  return 0
+}
+
+set_validate_vars() {
+  VPS_HOST_V="${1-example.com}"
+  VPS_PORT_V="${2-2222}"
+  VPS_USER_V="${3-deploy}"
+  VPS_KEY_V="${4-private-key}"
+  VPS_HOSTKEY_V="${5-host-key}"
+  VPS_PATH_V="${6-/opt/vacancies-searcher}"
+}
+
+set_validate_vars "example.com" "2222" "deploy" "private-key" "host-key" "/opt/vacancies-searcher"
+run_validate 0 && pass "validate: valid secrets accepted"
+
+# ---------------------------------------------------------------------------
+# 18. Validation script: rejects malformed values
+# ---------------------------------------------------------------------------
+
+set_validate_vars "" ""
+run_validate 1 && grep -q "missing required secret: VPS_HOST" "$TEST_RUNS/validate_out" \
+  && pass "validate: missing secret rejected" || fail "validate: missing secret rejected"
+
+set_validate_vars "example.com" "70000" "deploy"
+run_validate 1 && grep -q "VPS_PORT must be an integer between 1 and 65535" "$TEST_RUNS/validate_out" \
+  && pass "validate: out-of-range port rejected" || fail "validate: out-of-range port rejected"
+
+set_validate_vars "example.com" "22a" "deploy"
+run_validate 1 && grep -q "VPS_PORT must be an integer between 1 and 65535" "$TEST_RUNS/validate_out" \
+  && pass "validate: non-numeric port rejected" || fail "validate: non-numeric port rejected"
+
+set_validate_vars "example.com" "2222" "-evil"
+run_validate 1 && grep -q "VPS_USER must be a valid SSH username" "$TEST_RUNS/validate_out" \
+  && pass "validate: option-injection username rejected" \
+  || fail "validate: option-injection username rejected"
+
+set_validate_vars $'exa\nmple.com' "2222" "deploy"
+run_validate 1 && grep -q "VPS_HOST must be a hostname or IP address" "$TEST_RUNS/validate_out" \
+  && pass "validate: host with newline rejected" || fail "validate: host with newline rejected"
+
+set_validate_vars "example.com" "2222" "deploy" "key" "hostkey" "opt/vacancies-searcher"
+run_validate 1 && grep -q "VPS_DEPLOY_PATH must be an absolute path" "$TEST_RUNS/validate_out" \
+  && pass "validate: relative deploy path rejected" || fail "validate: relative deploy path rejected"
+
+set_validate_vars "example.com" "2222" "deploy" "key" "hostkey" "/opt/va'cancies"
+run_validate 1 && grep -q "VPS_DEPLOY_PATH must be an absolute path" "$TEST_RUNS/validate_out" \
+  && pass "validate: path with single quote rejected" \
+  || fail "validate: path with single quote rejected"
+
+set_validate_vars "example.com" "2222" "deploy" "key" "hostkey" $'/opt/va\ncancies'
+run_validate 1 && grep -q "VPS_DEPLOY_PATH must be an absolute path" "$TEST_RUNS/validate_out" \
+  && pass "validate: path with newline rejected" || fail "validate: path with newline rejected"
+
+set_validate_vars "example.com" "2222" "deploy" "key" "hostkey" "/opt/vacancies search"
+run_validate 1 && grep -q "VPS_DEPLOY_PATH must be an absolute path" "$TEST_RUNS/validate_out" \
+  && pass "validate: path with spaces rejected" || fail "validate: path with spaces rejected"
 
 # ---------------------------------------------------------------------------
 # Summary

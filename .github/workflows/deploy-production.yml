@@ -19,6 +19,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Validate required GitHub secrets are configured
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: bash scripts/validate-deploy-secrets.sh
+
       - name: Prepare SSH credentials from GitHub secrets
         run: |
           install -d -m 700 "$RUNNER_TEMP/ssh"
@@ -29,19 +39,6 @@ jobs:
         env:
           VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
           VPS_SSH_HOST_KEY: ${{ secrets.VPS_SSH_HOST_KEY }}
-
-      - name: Validate required GitHub secrets are configured
-        run: |
-          missing=()
-          for name in VPS_HOST VPS_PORT VPS_USER VPS_SSH_PRIVATE_KEY VPS_SSH_HOST_KEY VPS_DEPLOY_PATH; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing GitHub secrets: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
 
       - name: Run deployment script on the VPS
         run: |

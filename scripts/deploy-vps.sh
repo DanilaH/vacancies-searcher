@@ -168,7 +168,11 @@ if ! tar -czf "$BACKUP_FILE" .env data; then
   docker compose start vacancy-bot || true
   exit 1
 fi
-chmod 600 "$BACKUP_FILE"
+if ! chmod 600 "$BACKUP_FILE"; then
+  err "cannot set restrictive permissions on backup file; deployment stopped."
+  docker compose start vacancy-bot || true
+  exit 1
+fi
 log "backup created"
 
 # ---------------------------------------------------------------------------
@@ -188,7 +192,10 @@ fi
 # ---------------------------------------------------------------------------
 
 log "validating compose configuration"
-docker compose config --quiet
+if ! docker compose config --quiet; then
+  err "docker compose config validation failed for $NEW_SHA."
+  rollback
+fi
 
 log "building image"
 if ! docker compose build; then

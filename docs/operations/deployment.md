@@ -21,7 +21,8 @@ never for pushes to `master`. The workflow uses the GitHub Environment
 
 1. GitHub Actions starts the `Deploy Production` workflow with the exact
    commit SHA of the push (`github.sha`).
-2. SSH credentials are prepared from GitHub secrets on the runner.
+2. The workflow validates the GitHub secrets (presence and format) and
+   prepares SSH credentials on the runner.
 3. The runner connects to the VPS and executes
    `scripts/deploy-vps.sh <full-sha>` in the project directory.
 4. The script:
@@ -54,50 +55,123 @@ mounted into it. The backup is a safety net for manual recovery only.
 | `VPS_DEPLOY_PATH` | absolute path of the project directory on the VPS |
 
 Secrets are only read by the workflow; the deploy script never prints
-`.env` or environment contents.
+`.env` or environment contents. Before SSH, the workflow runs
+`scripts/validate-deploy-secrets.sh`, which requires every secret to be
+present and checks the shapes: `VPS_PORT` must be an integer between 1
+and 65535, `VPS_HOST` a hostname or IP without shell metacharacters,
+`VPS_USER` a valid SSH username, and `VPS_DEPLOY_PATH` an absolute path
+containing only safe characters.
 
 ## One-time VPS preparation
 
-1. Create a dedicated deploy user (or use a user that owns the project):
+1. Create a dedicated deploy user and grant it Docker access:
+
    ```bash
    sudo useradd --create-home --shell /bin/bash deploy
-   sudo -u deploy mkdir -p /opt/vacancies-searcher
+   sudo usermod -aG docker deploy
    ```
-2. Clone the repository:
+
+   Group membership only takes effect for new login sessions, so either
+   log out and back in, or start a fresh session (`su - deploy`) before
+   running any `docker` commands as this user.
+
+2. Prepare the project directory from root (`/opt` belongs to root, so
+   `sudo -u deploy mkdir /opt/...` would fail) and clone the repository:
+
    ```bash
+   sudo install -d -m 755 -o deploy -g deploy /opt/vacancies-searcher
    sudo -u deploy git clone https://github.com/<org>/<repo>.git /opt/vacancies-searcher
    ```
+
 3. Create `.env` from `.env.example` and fill in real secrets:
+
    ```bash
    sudo -u deploy cp /opt/vacancies-searcher/.env.example /opt/vacancies-searcher/.env
    sudo -u deploy chmod 600 /opt/vacancies-searcher/.env
-   sudo -u deploy mkdir -p /opt/vacancies-searcher/data
    ```
+
    The deploy script refuses to run without `.env` and `data/`.
-4. Add the remote as `origin` (the script fetches `origin/develop`):
+
+4. Prepare the persistent data directory for the container user. The
+   container runs as the `node` user (UID 1000, see the Dockerfile), so
+   `data/` must be writable by UID 1000. The deploy script archives
+   `data/` into backups, so the `deploy` user needs read access as well;
+   a plain `700` directory owned by `1000:1000` would break the backup
+   step. The group is `docker` because `deploy` is already a member:
+
    ```bash
-   sudo -u deploy git -C /opt/vacancies-searcher remote add origin <ssh-or-https-url>
-   sudo -u deploy git -C /opt/vacancies-searcher fetch origin
+   sudo install -d -m 750 -o 1000 -g docker /opt/vacancies-searcher/data
    ```
-5. Build once manually and verify the stack starts:
+
+   Resulting permissions:
+
+   - UID 1000 (container `node` user) — read/write;
+   - group `docker` (the `deploy` user) — read/execute, enough for backups;
+   - everyone else — no access.
+
+5. The clone already created `origin`, so the remote is never re-added.
+   Only fix the URL if the clone used a different one, then fetch:
+
+   ```bash
+   git -C /opt/vacancies-searcher remote set-url origin <repository-url>
+   git -C /opt/vacancies-searcher fetch origin develop
+   ```
+
+   (The deploy script fetches `origin/develop` on every run.)
+
+6. Build once manually and verify the stack starts:
+
    ```bash
    sudo -u deploy docker compose build
    sudo -u deploy docker compose up -d
    sudo -u deploy docker compose exec vacancy-bot node dist/healthcheck.js
    ```
-6. Generate the deploy key pair and authorize it:
+
+7. Generate the deploy key pair and authorize it:
+
    ```bash
    ssh-keygen -t ed25519 -f deploy_key -N '' -C 'github-actions-deploy'
    sudo -u deploy bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh'
    sudo -u deploy bash -c 'cat deploy_key.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
    ```
+
    Put the private key into the `VPS_SSH_PRIVATE_KEY` GitHub secret.
-7. Get the expected host key line directly on the VPS and put it into the
-   `VPS_SSH_HOST_KEY` GitHub secret:
+
+8. Get the expected host key directly from the server's own key files and
+   put it into the `VPS_SSH_HOST_KEY` GitHub secret:
+
    ```bash
-   ssh-keyscan -H -p 22 localhost
+   sudo cat /etc/ssh/ssh_host_ed25519_key.pub
    ```
-   (the GitHub runner uses it with `StrictHostKeyChecking=yes`).
+
+   The file contains a line like `ssh-ed25519 AAAA...`. Build the secret
+   value from the **real `VPS_HOST` value** (hostname or IP) plus that
+   key. For the default SSH port the record is:
+
+   ```text
+   example.com ssh-ed25519 AAAA...
+   ```
+
+   For a non-standard port:
+
+   ```text
+   [example.com]:2222 ssh-ed25519 AAAA...
+   ```
+
+   The GitHub runner connects to `VPS_HOST` with `StrictHostKeyChecking=yes`
+   and `UserKnownHostsFile` pointing at this record, so the name inside the
+   record must match `VPS_HOST` exactly (an IP address works too).
+
+   Verify the fingerprint of the key on the VPS before trusting it:
+
+   ```bash
+   sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+   ```
+
+   Do not obtain the trusted key via `ssh-keyscan` (from the runner or
+   elsewhere): `ssh-keyscan` output could be a man-in-the-middle response,
+   and the whole point of `StrictHostKeyChecking=yes` is to trust only the
+   key published out-of-band by the VPS administrator.
 
 ## Local master test stand
 
