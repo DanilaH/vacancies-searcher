@@ -110,11 +110,14 @@ containing only safe characters.
    - everyone else — no access.
 
 5. The clone already created `origin`, so the remote is never re-added.
-   Only fix the URL if the clone used a different one, then fetch:
+   All git commands must run as the `deploy` user, which owns the
+   repository — running them from `root` makes modern Git abort with
+   `detected dubious ownership`. Only fix the URL if the clone used a
+   different one (optional), then fetch:
 
    ```bash
-   git -C /opt/vacancies-searcher remote set-url origin <repository-url>
-   git -C /opt/vacancies-searcher fetch origin develop
+   sudo -u deploy git -C /opt/vacancies-searcher remote set-url origin <repository-url>
+   sudo -u deploy git -C /opt/vacancies-searcher fetch origin develop
    ```
 
    (The deploy script fetches `origin/develop` on every run.)
@@ -127,15 +130,24 @@ containing only safe characters.
    sudo -u deploy docker compose exec vacancy-bot node dist/healthcheck.js
    ```
 
-7. Generate the deploy key pair and authorize it:
+7. Generate the deploy key pair on the administrator's local machine
+   (not on the VPS, so the steps do not depend on the current directory):
 
    ```bash
-   ssh-keygen -t ed25519 -f deploy_key -N '' -C 'github-actions-deploy'
-   sudo -u deploy bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh'
-   sudo -u deploy bash -c 'cat deploy_key.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
+   ssh-keygen -t ed25519 -f github-actions-deploy -N '' -C 'github-actions-deploy'
    ```
 
-   Put the private key into the `VPS_SSH_PRIVATE_KEY` GitHub secret.
+   Add the **public** key to the VPS using explicit absolute paths:
+
+   ```bash
+   sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+   printf '%s\n' '<PUBLIC_KEY>' | sudo tee -a /home/deploy/.ssh/authorized_keys >/dev/null
+   sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
+   sudo chmod 600 /home/deploy/.ssh/authorized_keys
+   ```
+
+   Put the **private** key into the `VPS_SSH_PRIVATE_KEY` GitHub secret.
+   Never copy it into the repository and never print its contents.
 
 8. Get the expected host key directly from the server's own key files and
    put it into the `VPS_SSH_HOST_KEY` GitHub secret:
@@ -187,6 +199,32 @@ A push to `develop` is enough; the workflow handles the rest. For an
 out-of-band deploy (e.g. re-running a failed deploy), use
 `workflow_dispatch` on the workflow page — the script skips the
 deployment when the target commit is already deployed.
+
+## GitHub branch protection for `develop` (required)
+
+The production workflow is triggered by **any** push to `develop` — not
+only by merged PRs — so `develop` must be protected from direct pushes.
+Configure this after the first successful deployment:
+
+1. Go to Settings → Branches → Add rule for `develop`.
+2. Enable "Require a pull request before merging": direct pushes are
+   rejected and changes land on `develop` only through a PR.
+3. Require the `Quality / check` status check to pass before merging.
+   The Quality workflow runs on every pull request, including
+   `master → develop`, and covers `npm test`, the build, TypeScript, the
+   deployment script tests, compose validation, and the Docker build.
+4. Enable "Do not allow bypassing the above settings".
+5. Enable "Block force pushes".
+6. Enable "Require branches to be up to date before merging" so stale
+   `develop` cannot overwrite newer merged changes.
+7. Protect the branch from deletion (Settings → Branches → protection
+   for `develop`).
+8. If tighter control is needed, restrict who may merge (e.g. to the
+   repository owner) via the branch rule or repository permissions.
+
+With this rule in place, production changes flow only through a reviewed,
+tested `master → develop` PR: `Quality / check` runs on the PR itself,
+and the production workflow runs only on the push produced by merging it.
 
 ## Recovery
 
