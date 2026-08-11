@@ -134,6 +134,9 @@ Known from recent work:
 - `npm run build` and strict `npx tsc -p tsconfig.json --pretty false` passed after the same work.
 - Focused weekly/settings/schema check passed: `node --import tsx --test tests/botKeyboards.test.ts tests/runtimeSettings.test.ts tests/botUsers.test.ts tests/databaseMigration.test.ts`.
 - Focused keyboard/dismissal check passed: `node --import tsx --test tests/botKeyboards.test.ts tests/vacancyCardDismissal.test.ts`.
+- Full suite passed with 722 tests after PR #30 review and PR #31 deployment pipeline work (`npm test`); `npm run build` and `npx tsc -p tsconfig.json --pretty false` clean.
+- `tests/deployVpsScript.test.sh`: 51 checks, 50 passed, 1 skipped (file-perm assertion skipped on Windows where chmod is a no-op). `bash -n` clean on both scripts.
+- Deploy script behaviors covered by mock tests: invalid SHA, missing `.env`/compose, dirty tree, SHA not on `origin/develop`, backup failure restarts bot, success path with backup + healthcheck, build-failure rollback (exit 2), healthcheck-failure rollback (exit 2), failed rollback (exit 3). Not executed on this host: real `docker compose build`/`config --quiet` (no Docker available).
 - Live 7-day DB card analysis after extractor improvements: role 97.0%, company 41.3%, salary 29.0%, workFormat 58.9%, geography 26.6%, timeZone 3.4%; weekly fallback cards 26.6%, detail fallback cards 52.2%.
 - Finder Work accepts only `https://finder.work/vacancies/{id}` and parses JSON-LD before conservative HTML fallback.
 - Telegraph accepts only article-shaped `https://telegra.ph/{slug}` pages and uses conservative vacancy confidence.
@@ -163,13 +166,18 @@ npx tsc -p tsconfig.json --pretty false
 ## Git / Workspace Notes
 
 - Git metadata is available.
-- Current branch: `feat/trusted-sber-jobs` (research-only, no adapter).
+- Current branch: `ops/develop-vps-deployment` (PR #31 open — controlled develop-to-VPS deployment).
 - PR #19 (`feature/fuzzy-vacancy-dedup` → `master`) merged.
 - PR #20 (`feat/instant-vacancy-notifications-toggle` → `master`) merged.
 - PR #21 (`feat/fuzzy-dedup-report` → `master`) merged.
 - PR #23 (`feat/notification-quiet-hours`) is open — night quiet hours for instant notifications.
 - PR #25 (`feat/trusted-designer-ru`) merged — Designer.ru adapter.
 - PR #27 (`feat/trusted-mts-jobs`) merged — MTS Jobs adapter with archive detection.
+- PR #28 (`docs: record rabota.sber.ru trusted-adapter research`) merged.
+- PR #29 (`qa/telegram-smoke-baseline` → `master`) open — Telegram smoke audit and automated baseline.
+- PR #30 (`ops: prepare Docker deployment for a shared VPS`) merged — Dockerfile, docker-compose, VPS runbook.
+- PR #31 (`ops/develop-vps-deployment` → `master`) open — `develop → VPS` auto-deploy workflow (`deploy-production.yml`), server-side `scripts/deploy-vps.sh` (backup → exact-SHA checkout → rebuild → healthcheck → rollback), `docs/operations/deployment.md`, mock tests `tests/deployVpsScript.test.sh` (51 checks).
+- Deployment: push to `develop` triggers the workflow; `master` is never deployed. Docker build/compose not executable on this Windows host (mock-tested instead).
 
 ## Known Problems
 
