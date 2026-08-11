@@ -12,6 +12,9 @@ import { VacancyIngestor } from "../src/services/vacancyIngestor";
 import type { MatchedVacancyRecord } from "../src/types";
 import { createTestConfig } from "./helpers";
 
+const RECENT_BASE_MS = Date.now() - 24 * 60 * 60 * 1_000;
+const recentDate = (hoursAfterBase: number) => new Date(RECENT_BASE_MS + hoursAfterBase * 60 * 60 * 1_000).toISOString();
+
 function createFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-fuzzy-ingestion-"));
   const config = createTestConfig({
@@ -55,7 +58,7 @@ test("fuzzy duplicate detection works through full ingestion pipeline", async ()
     source: "telegram_web_preview" as const,
     channel: "remoteit",
     messageId: "fuzzy-1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD\nОпыт от 3 лет",
     url: "https://t.me/remoteit/1"
   };
@@ -64,7 +67,7 @@ test("fuzzy duplicate detection works through full ingestion pipeline", async ()
     source: "telegram_web_preview" as const,
     channel: "frontendjobs",
     messageId: "fuzzy-2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Senior Python Developer (Django) — релокация\nRemote\nSalary: 5000 USD\nОпыт от 3 лет\nПодробнее: https://example.com",
     url: "https://t.me/frontendjobs/1"
   };
@@ -96,7 +99,7 @@ test("non-duplicate vacancies go through ingestion independently", async () => {
     source: "telegram_web_preview" as const,
     channel: "remoteit",
     messageId: "indep-1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD",
     url: "https://t.me/remoteit/2"
   };
@@ -105,7 +108,7 @@ test("non-duplicate vacancies go through ingestion independently", async () => {
     source: "telegram_web_preview" as const,
     channel: "golangjobs",
     messageId: "indep-2",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Senior Golang Developer (Kubernetes)\nRemote\nSalary: 7000 USD",
     url: "https://t.me/golangjobs/1"
   };

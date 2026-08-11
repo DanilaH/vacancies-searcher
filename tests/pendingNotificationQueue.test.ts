@@ -22,6 +22,8 @@ import { VacancyIngestor } from "../src/services/vacancyIngestor";
 import type { MatchedVacancyRecord } from "../src/types";
 import { createTestConfig } from "./helpers";
 
+const recentMessageDate = (hoursAgo = 1) => new Date(Date.now() - hoursAgo * 60 * 60 * 1_000).toISOString();
+
 interface DeliveryRecord { userId: string; vacancyId: number }
 
 function createFixture(timeZone = "UTC") {
@@ -830,7 +832,7 @@ test("daytime: VacancyIngestor sends notification immediately, not queued", asyn
     source: "telegram_web_preview",
     channel: "ch1",
     messageId: "m1",
-    date: new Date("2026-07-22T14:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch1/m1"
   });
@@ -857,7 +859,7 @@ test("23:xx: VacancyIngestor enqueues notification to 08:00 next day", async () 
     source: "telegram_web_preview",
     channel: "ch2",
     messageId: "m2",
-    date: new Date("2026-07-22T23:30:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 6000 USD",
     url: "https://t.me/ch2/m2"
   });
@@ -887,7 +889,7 @@ test("03:xx: VacancyIngestor schedules delivery to 08:00 same day", async () => 
     source: "telegram_web_preview",
     channel: "ch3",
     messageId: "m3",
-    date: new Date("2026-07-22T03:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5500 USD",
     url: "https://t.me/ch3/m3"
   });
@@ -917,7 +919,7 @@ test("instant disabled: VacancyIngestor saves match, no enqueue", async () => {
     source: "telegram_web_preview",
     channel: "ch4",
     messageId: "m4",
-    date: new Date("2026-07-22T23:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 7000 USD",
     url: "https://t.me/ch4/m4"
   });
@@ -991,7 +993,7 @@ test("single now value used for both quiet hours check and scheduledAt computati
     source: "telegram_web_preview",
     channel: "ch-clock",
     messageId: "m-clock",
-    date: new Date("2026-07-22T23:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch-clock/m-clock"
   });
@@ -1023,7 +1025,7 @@ test("fuzzy group during quiet hours creates single pending notification through
     source: "telegram_web_preview",
     channel: "ch-fuzzy1",
     messageId: "fuzzy-a",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentMessageDate(5),
     text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD\nОпыт от 3 лет",
     url: "https://t.me/ch-fuzzy1/1"
   });
@@ -1034,7 +1036,7 @@ test("fuzzy group during quiet hours creates single pending notification through
     source: "telegram_web_preview",
     channel: "ch-fuzzy2",
     messageId: "fuzzy-b",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentMessageDate(1),
     text: "Senior Python Developer (Django) — релокация\nRemote\nSalary: 5000 USD\nОпыт от 3 лет\nПодробнее: https://example.com",
     url: "https://t.me/ch-fuzzy2/1"
   });

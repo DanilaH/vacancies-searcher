@@ -17,6 +17,8 @@ import { VacancyIngestor } from "../src/services/vacancyIngestor";
 import type { MatchedVacancyRecord } from "../src/types";
 import { createTestConfig } from "./helpers";
 
+const recentMessageDate = () => new Date(Date.now() - 60_000).toISOString();
+
 interface MockCtx extends grammy.Context {
   readonly answerText: string | undefined;
   readonly answerCount: number;
@@ -304,7 +306,7 @@ test("enabled setting sends instant notification and marks delivered", async () 
     source: "telegram_web_preview" as const,
     channel: "ch1",
     messageId: "m1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch1/m1"
   });
@@ -332,7 +334,7 @@ test("disabled setting does not send instant notification, keeps deliveredAt nul
     source: "telegram_web_preview" as const,
     channel: "ch2",
     messageId: "m2",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch2/m2"
   });
@@ -363,7 +365,7 @@ test("disabled setting does not affect other users", async () => {
     source: "telegram_web_preview" as const,
     channel: "ch3",
     messageId: "m3",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch3/m3"
   });
@@ -395,7 +397,7 @@ test("disabled setting keeps vacancy accessible in weekly feed", async () => {
     source: "telegram_web_preview" as const,
     channel: "ch4",
     messageId: "m4",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentMessageDate(),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch4/m4"
   });

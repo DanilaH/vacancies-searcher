@@ -25,3 +25,6 @@ jobs:
       - run: npm run build
 
       - run: npx tsc -p tsconfig.json --pretty false
+
+      - name: Build production Docker image
+        run: docker build --tag vacancies-searcher:ci .
