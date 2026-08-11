@@ -12,6 +12,9 @@ import { VacancyIngestor } from "../src/services/vacancyIngestor";
 import type { MatchedVacancyRecord } from "../src/types";
 import { createTestConfig } from "./helpers";
 
+const RECENT_BASE_MS = Date.now() - 24 * 60 * 60 * 1_000;
+const recentDate = (hoursAfterBase: number) => new Date(RECENT_BASE_MS + hoursAfterBase * 60 * 60 * 1_000).toISOString();
+
 function createFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-tg-bot-fuzzy-regression-"));
   const config = createTestConfig({
@@ -56,7 +59,7 @@ test("per-user fuzzy dedup: user A matches first, user B matches second only", a
     source: "telegram_web_preview" as const,
     channel: "ch1",
     messageId: "f1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD",
     url: "https://t.me/ch1/f1"
   });
@@ -65,7 +68,7 @@ test("per-user fuzzy dedup: user A matches first, user B matches second only", a
     source: "telegram_web_preview" as const,
     channel: "ch2",
     messageId: "f2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Senior Python Developer (Django) — релокация\nRemote\nSalary: 5000 USD\nStack: Golang, Kubernetes",
     url: "https://t.me/ch2/f2"
   });
@@ -99,7 +102,7 @@ test("fuzzy chain: A-B-C all in one group, root shows all sources", async () => 
     source: "telegram_web_preview" as const,
     channel: "chA",
     messageId: "ca",
-    date: new Date("2026-07-20T08:00:00Z").toISOString(),
+    date: recentDate(0),
     text: "Senior Python Developer (Django)\nRemote\nSalary: 5000 USD",
     url: "https://t.me/chA/ca"
   });
@@ -108,7 +111,7 @@ test("fuzzy chain: A-B-C all in one group, root shows all sources", async () => 
     source: "telegram_web_preview" as const,
     channel: "chB",
     messageId: "cb",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Senior Python Developer (Django) — релокация\nRemote\nSalary: 5000 USD\nПодробнее: https://example.com",
     url: "https://t.me/chB/cb"
   });
@@ -117,7 +120,7 @@ test("fuzzy chain: A-B-C all in one group, root shows all sources", async () => 
     source: "telegram_web_preview" as const,
     channel: "chC",
     messageId: "cc",
-    date: new Date("2026-07-20T16:00:00Z").toISOString(),
+    date: recentDate(8),
     text: "Senior Python Developer (Django) — релокация в IT-компанию\nRemote\nSalary: 5000 USD\nОткликнуться: https://t.me/bot",
     url: "https://t.me/chC/cc"
   });
@@ -158,7 +161,7 @@ test("exact dedup by fingerprint still works alongside fuzzy dedup", async () =>
     source: "telegram_web_preview" as const,
     channel: "e1",
     messageId: "e1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote",
     url: "https://t.me/e1/e1"
   });
@@ -167,7 +170,7 @@ test("exact dedup by fingerprint still works alongside fuzzy dedup", async () =>
     source: "telegram_web_preview" as const,
     channel: "e2",
     messageId: "e2",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Python Developer\nRemote",
     url: "https://t.me/e2/e2"
   });
@@ -176,7 +179,7 @@ test("exact dedup by fingerprint still works alongside fuzzy dedup", async () =>
     source: "telegram_web_preview" as const,
     channel: "e3",
     messageId: "e3",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer (Remote)\nRemote work\nSalary: 3000 USD",
     url: "https://t.me/e3/e3"
   });
@@ -203,7 +206,7 @@ test("all raw and vacancy records are preserved", async () => {
     source: "telegram_web_preview" as const,
     channel: "r1",
     messageId: "r1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 4000 USD",
     url: "https://t.me/r1/r1"
   });
@@ -212,7 +215,7 @@ test("all raw and vacancy records are preserved", async () => {
     source: "telegram_web_preview" as const,
     channel: "r2",
     messageId: "r2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer — Middle\nRemote\nSalary: 4000 USD\nПодробнее: https://example.com",
     url: "https://t.me/r2/r2"
   });
@@ -236,7 +239,7 @@ test("user does not get duplicate matches or notifications", async () => {
     source: "telegram_web_preview" as const,
     channel: "d1",
     messageId: "d1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Senior Python Developer\nRemote\nSalary: 6000 USD",
     url: "https://t.me/d1/d1"
   });
@@ -245,7 +248,7 @@ test("user does not get duplicate matches or notifications", async () => {
     source: "telegram_web_preview" as const,
     channel: "d2",
     messageId: "d2",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Senior Python Developer — relocation\nRemote\nSalary: 6000 USD\nMore info",
     url: "https://t.me/d2/d2"
   });
@@ -270,7 +273,7 @@ test("existing vacancy status unchanged by fuzzy duplicate", async () => {
     source: "telegram_web_preview" as const,
     channel: "s1",
     messageId: "s1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/s1/s1"
   });
@@ -286,7 +289,7 @@ test("existing vacancy status unchanged by fuzzy duplicate", async () => {
     source: "telegram_web_preview" as const,
     channel: "s2",
     messageId: "s2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nДетали",
     url: "https://t.me/s2/s2"
   });
@@ -306,7 +309,7 @@ test("relevance feedback unchanged by fuzzy duplicate", async () => {
     source: "telegram_web_preview" as const,
     channel: "fb1",
     messageId: "fb1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/fb1/fb1"
   });
@@ -320,7 +323,7 @@ test("relevance feedback unchanged by fuzzy duplicate", async () => {
     source: "telegram_web_preview" as const,
     channel: "fb2",
     messageId: "fb2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nMore",
     url: "https://t.me/fb2/fb2"
   });
@@ -340,21 +343,21 @@ test("active reminder not removed by fuzzy duplicate", async () => {
     source: "telegram_web_preview" as const,
     channel: "rm1",
     messageId: "rm1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/rm1/rm1"
   });
 
   const allV = fixture.database.listVacanciesSince(7);
   const v1 = allV.find((v) => v.sourceMessageId === "rm1")!;
-  fixture.database.scheduleUserVacancyReminder("777", v1.id, new Date("2026-07-27T10:00:00Z").toISOString());
+  fixture.database.scheduleUserVacancyReminder("777", v1.id, recentDate(170));
   assert.ok(fixture.database.getActiveUserVacancyReminder("777", v1.id), "Reminder set before");
 
   await fixture.ingestor.handle({
     source: "telegram_web_preview" as const,
     channel: "rm2",
     messageId: "rm2",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nДетали",
     url: "https://t.me/rm2/rm2"
   });
@@ -376,7 +379,7 @@ test("card shows all fuzzy sources via listVacancyDuplicatePosts", async () => {
     source: "telegram_web_preview" as const,
     channel: "srcA",
     messageId: "srcA",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/srcA/srcA"
   });
@@ -385,7 +388,7 @@ test("card shows all fuzzy sources via listVacancyDuplicatePosts", async () => {
     source: "telegram_web_preview" as const,
     channel: "srcB",
     messageId: "srcB",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nDetails",
     url: "https://t.me/srcB/srcB"
   });
@@ -394,7 +397,7 @@ test("card shows all fuzzy sources via listVacancyDuplicatePosts", async () => {
     source: "telegram_web_preview" as const,
     channel: "srcC",
     messageId: "srcC",
-    date: new Date("2026-07-20T14:00:00Z").toISOString(),
+    date: recentDate(6),
     text: "Python Developer (Middle) — relocation\nRemote\nSalary: 5000 USD\nMore info",
     url: "https://t.me/srcC/srcC"
   });
@@ -420,7 +423,7 @@ test("canonical dedup fires before fuzzy, preserves data, lists all sources", as
     source: "telegram_web_preview" as const,
     channel: "canonA",
     messageId: "ca1",
-    date: new Date("2026-07-20T10:00:00Z").toISOString(),
+    date: recentDate(2),
     text: "Python Developer\nRemote\nSalary: 5000 USD",
     url: "https://t.me/canonA/ca1",
     canonicalUrl: "https://example.com/vacancy/123"
@@ -433,7 +436,7 @@ test("canonical dedup fires before fuzzy, preserves data, lists all sources", as
     source: "telegram_web_preview" as const,
     channel: "canonB",
     messageId: "ca2",
-    date: new Date("2026-07-20T12:00:00Z").toISOString(),
+    date: recentDate(4),
     text: "Python Developer — Middle\nRemote\nSalary: 5000 USD\nDifferent text, same canonical URL",
     url: "https://t.me/canonB/ca2",
     canonicalUrl: "https://example.com/vacancy/123"
