@@ -12,6 +12,7 @@ import { createTestConfig } from "./helpers";
 
 const fixturePath = path.join(process.cwd(), "tests", "fixtures", "telegram-web-preview", "sample.html");
 const fixtureHtml = fs.readFileSync(fixturePath, "utf8");
+const recentPreviewDate = () => new Date(Date.now() - 60_000).toISOString();
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -25,7 +26,7 @@ function createPreviewHtml(channel: string, ...messageIds: string[]): string {
       (messageId) => `
         <article class="tgme_widget_message" data-post="${channel}/${messageId}">
           <div class="tgme_widget_message_text">Remote React ${channel} ${messageId}</div>
-          <time datetime="2026-07-06T10:00:00+00:00"></time>
+          <time datetime="${recentPreviewDate()}"></time>
         </article>
       `
     )
@@ -41,7 +42,7 @@ function createPreviewPageHtml(
       (message) => `
         <article class="tgme_widget_message" data-post="${channel}/${message.id}">
           ${message.text === undefined ? "" : `<div class="tgme_widget_message_text">${message.text}</div>`}
-          <time datetime="${message.date ?? "2026-07-06T10:00:00+00:00"}"></time>
+          <time datetime="${message.date ?? recentPreviewDate()}"></time>
         </article>
       `
     )
