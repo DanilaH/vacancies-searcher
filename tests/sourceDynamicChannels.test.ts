@@ -22,10 +22,11 @@ function createTempDatabaseConfig() {
 }
 
 function createPreviewHtml(channel: string, messageId: string): string {
+  const recentDate = new Date(Date.now() - 60_000).toISOString();
   return `
     <article class="tgme_widget_message" data-post="${channel}/${messageId}">
       <div class="tgme_widget_message_text">Remote React ${channel}</div>
-      <time datetime="2026-07-06T10:00:00+00:00"></time>
+      <time datetime="${recentDate}"></time>
     </article>
   `;
 }
